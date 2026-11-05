@@ -555,6 +555,11 @@ public class GameCopier {
             newCard.copyChangedSVarsFrom(c);
         }
 
+        if (zone == ZoneType.Exile && origGame.AI_SIM_SEARCH && c.hasSuspend()) {
+            // Only cards on the battlefield keep their counters otherwise, and GameStateEvaluator scores this card by them.
+            newCard.setCounters(HashMultiset.create(c.getCounters()));
+        }
+
         if (zone == ZoneType.Exile && c.isFaceDown()) {
             // Face-down exile state (foretell, "exile face down" effects) must
             // survive the copy: cards rebuilt from their paper card default to

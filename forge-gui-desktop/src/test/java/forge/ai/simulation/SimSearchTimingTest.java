@@ -8,7 +8,6 @@ import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
 
 import forge.game.Game;
-import forge.game.card.Card;
 import forge.game.keyword.Keyword;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;

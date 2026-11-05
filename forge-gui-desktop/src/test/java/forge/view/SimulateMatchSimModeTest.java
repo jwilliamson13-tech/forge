@@ -8,6 +8,7 @@ import org.testng.annotations.Test;
 import forge.ai.AIOption;
 
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
 
@@ -27,6 +28,14 @@ public class SimulateMatchSimModeTest {
     @Test
     public void anUnknownModeIsRefused() {
         assertNull(SimulateMatch.aiOptionsForSimMode("Full"));
+    }
+
+    @Test
+    public void theSearchChangesApplyOnlyWhenASeatSearches() {
+        assertTrue(SimulateMatch.anySeatSearches(List.of("full", "heuristic")));
+        assertTrue(SimulateMatch.anySeatSearches(List.of("heuristic", "hybrid")));
+        assertFalse(SimulateMatch.anySeatSearches(List.of("heuristic", "heuristic")));
+        assertFalse(SimulateMatch.anySeatSearches(null));
     }
 
     @Test
