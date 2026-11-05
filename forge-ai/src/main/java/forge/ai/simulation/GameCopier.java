@@ -283,6 +283,7 @@ public class GameCopier {
         newGame.dangerouslySyncCardIdCounters(origGame);
         newGame.EXPERIMENTAL_RESTORE_SNAPSHOT = origGame.EXPERIMENTAL_RESTORE_SNAPSHOT;
         newGame.AI_TIMEOUT = origGame.AI_TIMEOUT;
+        newGame.AI_SIM_SEARCH = origGame.AI_SIM_SEARCH;
         newGame.setAge(origGame.getAge());
 
         // TODO countersAddedThisTurn
@@ -552,6 +553,11 @@ public class GameCopier {
 
             newCard.setSVars(c.getSVars());
             newCard.copyChangedSVarsFrom(c);
+        }
+
+        if (zone == ZoneType.Exile && origGame.AI_SIM_SEARCH && c.hasSuspend()) {
+            // Only cards on the battlefield keep their counters otherwise, and GameStateEvaluator scores this card by them.
+            newCard.setCounters(HashMultiset.create(c.getCounters()));
         }
 
         if (zone == ZoneType.Exile && c.isFaceDown()) {

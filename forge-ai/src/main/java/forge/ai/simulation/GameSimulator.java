@@ -300,6 +300,7 @@ public class GameSimulator {
             printDiff(origLines, simLines);
         }
         controller.possiblyCacheResult(score, origSa);
+        controller.lineSimulated(score);
         if (controller.shouldRecurse() && !simGame.isGameOver()) {
             controller.push(sa, score, this);
             SpellAbilityPicker sim = new SpellAbilityPicker(aiPlayer);

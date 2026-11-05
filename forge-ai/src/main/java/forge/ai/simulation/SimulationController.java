@@ -5,6 +5,7 @@ import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import forge.util.AITimeoutTracker;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,6 +21,8 @@ public class SimulationController {
     private List<GameSimulator> simulatorStack;
     private Plan.Decision bestSequence; // last action of sequence
     private Score bestScore;
+    private Plan.Decision bestLine; // last action of the best line simulated so far
+    private Score bestLineScore;
     private List<CachedEffect> effectCache = new ArrayList<>();
     private GameObject[] currentHostAndTarget;
 
@@ -46,6 +49,7 @@ public class SimulationController {
     public SimulationController(Score score, int maxDepth) {
         this.maxDepth = maxDepth;
         bestScore = score;
+        bestLineScore = score;
         scoreStack = new ArrayList<>();
         scoreStack.add(score);
         simulatorStack = new ArrayList<>();
@@ -101,13 +105,41 @@ public class SimulationController {
         return bestScore;
     }
 
+    /**
+     * Notes a line whose last action has just been simulated and scored, before the search looks any deeper. A stopped
+     * search never reaches doneEvaluating for the lines it still has open, so they would be lost to bestSequence. A
+     * score made after the stop is left out: an AI inside the simulated game may have been cut short while making it.
+     */
+    public void lineSimulated(Score score) {
+        Plan.Decision last = getLastDecision();
+        if (last != null && last.initialScore.value < score.value && score.value > bestLineScore.value
+                && !AITimeoutTracker.isStopped()) {
+            bestLine = last;
+            bestLineScore = score;
+        }
+    }
+
+    /**
+     * What a stopped search has to offer: its best simulated line, under the rule SpellAbilityPicker applies to a
+     * finished search. The best line by value must also raise the available value, or the answer is to pass.
+     */
+    public Plan getBestLineSoFar() {
+        if (bestLine == null || bestLineScore.availableValue <= scoreStack.get(0).availableValue) {
+            return null;
+        }
+        return buildPlan(bestLine, bestLineScore);
+    }
+
     public Plan getBestPlan() {
         if (!currentStack.isEmpty()) {
             throw new RuntimeException("getBestPlan() expects currentStack to be empty!");
         }
+        return buildPlan(bestSequence, getBestScore());
+    }
 
+    private Plan buildPlan(Plan.Decision lastDecision, Score finalScore) {
         ArrayList<Plan.Decision> sequence = new ArrayList<>();
-        Plan.Decision current = bestSequence;
+        Plan.Decision current = lastDecision;
         while (current != null) {
             sequence.add(current);
             current = current.prevDecision;
@@ -134,7 +166,7 @@ public class SimulationController {
             }
         }
         sequence.subList(writeIndex, sequence.size()).clear();
-        return new Plan(sequence, getBestScore());
+        return new Plan(sequence, finalScore);
     }
 
     private Plan.Decision getLastMergedDecision() {

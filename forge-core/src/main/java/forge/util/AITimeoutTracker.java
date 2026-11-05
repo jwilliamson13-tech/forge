@@ -188,6 +188,10 @@ public final class AITimeoutTracker {
     private static final AtomicLong DEADLINE_EXPIRIES = new AtomicLong();
     private static final AtomicLong LAST_EXPIRED_DEADLINE = new AtomicLong();
     private static final AtomicLong BUDGET_STOPS = new AtomicLong();
+    private static final AtomicLong STOPS_PLAYED = new AtomicLong();
+    private static final AtomicLong STOPS_PASSED = new AtomicLong();
+    private static final AtomicLong STOPS_WITH_LAND = new AtomicLong();
+    private static final AtomicLong LAND_DROPS_MISSED = new AtomicLong();
 
     /**
      * Records that the deadline of a decision passed. Every thread and nested session of one decision shares the same
@@ -207,6 +211,39 @@ public final class AITimeoutTracker {
     /** How many AI decisions have been cut short by their search budget since this JVM started. */
     public static long budgetStops() {
         return BUDGET_STOPS.get();
+    }
+
+    /** Records what became of a decision the search could not finish: it played a line, or it passed priority. */
+    public static void noteStop(final boolean played, final boolean landAmongCandidates) {
+        (played ? STOPS_PLAYED : STOPS_PASSED).incrementAndGet();
+        if (landAmongCandidates) {
+            STOPS_WITH_LAND.incrementAndGet();
+        }
+    }
+
+    /** Records a turn that ended with no land played, after a stopped decision of that turn could have played one. */
+    public static void noteLandDropMissed() {
+        LAND_DROPS_MISSED.incrementAndGet();
+    }
+
+    /** How many stopped decisions have played a line since this JVM started. */
+    public static long stopsPlayed() {
+        return STOPS_PLAYED.get();
+    }
+
+    /** How many stopped decisions have passed priority since this JVM started. */
+    public static long stopsPassed() {
+        return STOPS_PASSED.get();
+    }
+
+    /** How many stopped decisions have had a land among their candidates since this JVM started. */
+    public static long stopsWithLand() {
+        return STOPS_WITH_LAND.get();
+    }
+
+    /** How many land drops have been missed after a stopped decision since this JVM started. */
+    public static long landDropsMissed() {
+        return LAND_DROPS_MISSED.get();
     }
 
     /**
@@ -276,6 +313,12 @@ public final class AITimeoutTracker {
             noteDeadlineExpired(l.deadlineNanos);
             throw new Expired();
         }
+    }
+
+    /** True once {@link #check()} would throw for a used-up limit. Unlike check() it has no effect on the counts. */
+    public static boolean isStopped() {
+        final Limit l = LIMIT.get();
+        return l.stepsLeft == 0 || (l.armed && System.nanoTime() - l.deadlineNanos >= 0);
     }
 
     /** Nanoseconds left of this thread's armed deadline (Long.MAX_VALUE when not armed). */

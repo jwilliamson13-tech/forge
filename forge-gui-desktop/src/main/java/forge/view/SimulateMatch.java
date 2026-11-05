@@ -52,6 +52,8 @@ public class SimulateMatch {
     private static int searchBudget = 0;
     /** True with -sim or -budget. Without them the output stays what stock Forge prints. */
     private static boolean printAiLimits = false;
+    /** True when -sim gives a seat a mode that searches. Only then do the search changes of Game.AI_SIM_SEARCH apply. */
+    private static boolean simSearch = false;
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
@@ -135,6 +137,7 @@ public class SimulateMatch {
             }
         }
         printAiLimits = searchBudget > 0 || params.containsKey("sim");
+        simSearch = anySeatSearches(params.get("sim"));
 
         Long seed = null;
         if (params.containsKey("s")) {
@@ -280,6 +283,11 @@ public class SimulateMatch {
         }
     }
 
+    /** True if any -sim value is a mode that searches. Null means the flag was left out. */
+    static boolean anySeatSearches(List<String> simModes) {
+        return simModes != null && (simModes.contains(SIM_MODE_HYBRID) || simModes.contains(SIM_MODE_FULL));
+    }
+
     /** The AI options behind a -sim mode name, or null if there is no such mode. */
     static Set<AIOption> aiOptionsForSimMode(String mode) {
         switch (mode) {
@@ -308,7 +316,7 @@ public class SimulateMatch {
         System.out.println("\tS - RNG seed for simulation");
         System.out.println("\tA - AI profile per player, in the same order as the decks (e.g. -a Default Experimental)");
         System.out.println("\tSIM - Simulation mode per player, in the same order as the decks: heuristic, hybrid or full (e.g. -sim full heuristic). Players left out and runs without the flag stay heuristic. With the flag, result lines name each player's mode as [sim=mode]. Not for tournaments.");
-        System.out.println("\tB - Search steps per AI decision. Replaces the wall-clock limit on AI decisions with a count, so that a run replays from its seed on a busy machine too. A decision that runs out passes priority, as one that runs out of time does.");
+        System.out.println("\tB - Search steps per AI decision. Replaces the wall-clock limit on AI decisions with a count, so that a run replays from its seed on a busy machine too. A full sim decision that runs out plays the best line it found, and passes if that is no better than passing. A heuristic seat has no search to run out.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
@@ -329,9 +337,14 @@ public class SimulateMatch {
             // no decision can outlast the game, so this leaves the budget as the only limit on one
             g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
         }
+        g1.AI_SIM_SEARCH = simSearch;
         final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
         final long stopsBefore = AITimeoutTracker.budgetStops();
         final long drawsBefore = MyRandom.callCount();
+        final long playedBefore = AITimeoutTracker.stopsPlayed();
+        final long passedBefore = AITimeoutTracker.stopsPassed();
+        final long withLandBefore = AITimeoutTracker.stopsWithLand();
+        final long missedBefore = AITimeoutTracker.landDropsMissed();
         // will run match in the same thread
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -361,9 +374,12 @@ public class SimulateMatch {
         }
 
         if (printAiLimits) {
-            System.out.printf("AI limits: %d deadline expiries, %d budget stops, %d random draws%n",
+            System.out.printf("AI limits: %d deadline expiries, %d budget stops, %d random draws, "
+                            + "%d stops played, %d stops passed, %d stops with a land, %d land drops missed%n",
                     AITimeoutTracker.deadlineExpiries() - expiriesBefore, AITimeoutTracker.budgetStops() - stopsBefore,
-                    MyRandom.callCount() - drawsBefore);
+                    MyRandom.callCount() - drawsBefore, AITimeoutTracker.stopsPlayed() - playedBefore,
+                    AITimeoutTracker.stopsPassed() - passedBefore, AITimeoutTracker.stopsWithLand() - withLandBefore,
+                    AITimeoutTracker.landDropsMissed() - missedBefore);
         }
 
         // If both players life totals to 0 in a single turn, the game should end in a draw

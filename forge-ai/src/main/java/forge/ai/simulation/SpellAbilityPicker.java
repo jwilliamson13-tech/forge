@@ -8,12 +8,14 @@ import forge.ai.simulation.GameStateEvaluator.Score;
 import forge.game.Game;
 import forge.game.ability.ApiType;
 import forge.game.card.*;
+import forge.game.keyword.Keyword;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.spellability.AbilitySub;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityCondition;
 import forge.game.zone.ZoneType;
+import forge.util.AITimeoutTracker;
 import forge.util.MyRandom;
 import forge.util.TextUtil;
 
@@ -31,6 +33,10 @@ public class SpellAbilityPicker {
 
     private Plan plan;
     private int numSimulations;
+    /** True when the search of the current forge sim decision ran out of budget or time. */
+    private boolean stopped;
+    /** The turn of a stopped decision that could have played a land, until the end of that turn shows if one was played. */
+    private int stoppedWithLandOnTurn = -1;
 
     public SpellAbilityPicker(Player player) {
         this.game = player.getGame();
@@ -102,6 +108,10 @@ public class SpellAbilityPicker {
     public SpellAbility chooseSpellAbilityToPlay(SimulationController controller) {
         //printOutput = controller == null;
 
+        if (controller == null) {
+            countMissedLandDrop();
+        }
+
         // Pass if top of stack is owned by me.
         if (!game.getStack().isEmpty() && game.getStack().peekAbility().getActivatingPlayer().equals(player)) {
             return null;
@@ -120,17 +130,78 @@ public class SpellAbilityPicker {
         if (sa != null) {
             return sa;
         }
+        stopped = false;
         createNewPlan(origGameScore, candidateSAs);
-        return getPlannedSpellAbility(origGameScore, candidateSAs);
+        sa = getPlannedSpellAbility(origGameScore, candidateSAs);
+        if (stopped) {
+            noteStop(candidateSAs, sa);
+            clearHypotheticalCasts(candidateSAs);
+        }
+        return sa;
+    }
+
+    /** Asking a spell if it can be played leaves it as the card's castSA. AiController clears that after its own checks. */
+    private void clearHypotheticalCasts(List<SpellAbility> candidateSAs) {
+        for (SpellAbility sa : candidateSAs) {
+            if (sa.isSpell()) {
+                sa.getHostCard().setCastSA(null);
+            }
+        }
+    }
+
+    /** True for the real decisions of a forge sim game, and false for default play and for an AI inside a simulated game. */
+    private boolean isSimDecision() {
+        return game.AI_SIM_SEARCH && !game.isSimulationCopy();
+    }
+
+    private void noteStop(List<SpellAbility> candidateSAs, SpellAbility chosen) {
+        boolean land = candidateSAs.stream().anyMatch(SpellAbility::isLandAbility);
+        AITimeoutTracker.noteStop(chosen != null, land);
+        if (land) {
+            stoppedWithLandOnTurn = game.getPhaseHandler().getTurn();
+        }
+    }
+
+    /** A land can still go down after a stop, in the second main phase, so the end of the turn is what settles it. */
+    private void countMissedLandDrop() {
+        if (stoppedWithLandOnTurn == -1 || !game.getPhaseHandler().is(PhaseType.END_OF_TURN)) {
+            return;
+        }
+        if (stoppedWithLandOnTurn == game.getPhaseHandler().getTurn() && player.getLandsPlayedThisTurn() == 0) {
+            AITimeoutTracker.noteLandDropMissed();
+        }
+        stoppedWithLandOnTurn = -1;
     }
 
     private Plan formulatePlanWithPhase(Score origGameScore, List<SpellAbility> candidateSAs, PhaseType phase) {
         SimulationController controller = new SimulationController(origGameScore);
+        if (isSimDecision()) {
+            return formulatePlanOrBestLine(controller, origGameScore, candidateSAs, phase);
+        }
         SpellAbility sa = chooseSpellAbilityToPlayImpl(controller, candidateSAs, origGameScore, phase);
         if (sa != null) {
             return controller.getBestPlan();
         }
         return null;
+    }
+
+    /**
+     * In forge sim a search that is stopped keeps what it found instead of throwing it away. Only the real decision does
+     * this: the search works on copies, so all a stop leaves behind in the real game is the random stream, which
+     * evaluateSa restores only when it finishes.
+     */
+    private Plan formulatePlanOrBestLine(SimulationController controller, Score origGameScore, List<SpellAbility> candidateSAs, PhaseType phase) {
+        Random origRandom = MyRandom.getRandom();
+        try {
+            SpellAbility sa = chooseSpellAbilityToPlayImpl(controller, candidateSAs, origGameScore, phase);
+            // An AI inside a simulated game catches a stop and passes, so a search can get here on scores cut short.
+            AITimeoutTracker.check();
+            return sa != null ? controller.getBestPlan() : null;
+        } catch (AITimeoutTracker.Expired e) {
+            stopped = true;
+            MyRandom.setRandom(origRandom);
+            return controller.getBestLineSoFar();
+        }
     }
 
     private void printPlan(Plan plan, String intro) {
@@ -154,16 +225,8 @@ public class SpellAbilityPicker {
         }
 
         PhaseType currentPhase = game.getPhaseHandler().getPhase();
-        if (currentPhase.isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)) {
-            List<SpellAbility> candidateSAs2 = new ArrayList<>();
-            for (SpellAbility sa : candidateSAs) {
-                if (!SpellAbilityAi.isSorcerySpeed(sa, player)) {
-                    if (printOutput) {
-                        System.err.println("Not sorcery: " + sa);
-                    }
-                    candidateSAs2.add(sa);
-                }
-            }
+        if (!stopped && currentPhase.isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)) {
+            List<SpellAbility> candidateSAs2 = abilitiesToRetryAfterBlockers(candidateSAs);
             if (!candidateSAs2.isEmpty()) {
                 if (printOutput) {
                     System.err.println("Formula plan with phase bloom");
@@ -179,6 +242,32 @@ public class SpellAbilityPicker {
 
         printPlan(bestPlan, "Current phase (" + currentPhase + ")");
         plan = bestPlan;
+    }
+
+    /** The candidates worth asking "would this be better after blockers?" about: those still legal at that point. */
+    List<SpellAbility> abilitiesToRetryAfterBlockers(List<SpellAbility> candidateSAs) {
+        List<SpellAbility> retry = new ArrayList<>();
+        for (SpellAbility sa : candidateSAs) {
+            if (!SpellAbilityAi.isSorcerySpeed(sa, player) && !isSuspendAtSorceryTiming(sa)) {
+                if (printOutput) {
+                    System.err.println("Not sorcery: " + sa);
+                }
+                retry.add(sa);
+            }
+        }
+        return retry;
+    }
+
+    /**
+     * Suspend is neither a spell nor an activated ability, so isSorcerySpeed doesn't see that it follows the timing of
+     * its card: a sorcery can't be suspended during combat, and retrying it there only fails to find the ability.
+     */
+    private boolean isSuspendAtSorceryTiming(SpellAbility sa) {
+        if (!game.AI_SIM_SEARCH || !sa.isKeyword(Keyword.SUSPEND)) {
+            return false;
+        }
+        Card host = sa.getHostCard();
+        return !host.getFirstSpellAbility().withFlash(host, player);
     }
 
     private SpellAbility chooseSpellAbilityToPlayImpl(SimulationController controller, List<SpellAbility> candidateSAs, Score origGameScore, PhaseType phase) {

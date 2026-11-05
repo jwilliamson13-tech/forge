@@ -5,6 +5,7 @@ import forge.ai.CreatureEvaluator;
 import forge.card.mana.ManaAtom;
 import forge.game.Game;
 import forge.game.card.Card;
+import forge.game.card.CardLists;
 import forge.game.card.CounterEnumType;
 import forge.game.cost.CostSacrifice;
 import forge.game.phase.PhaseType;
@@ -80,6 +81,9 @@ public class GameStateEvaluator {
     // GameSimulator returns Integer.MIN_VALUE to mean "this line could not be simulated", so the
     // very bottom of the range is left alone and a real loss is scored just above it.
     private static final int GAME_OVER_TURN_PENALTY = 1000;
+    // A suspended card is still a card to come, and its cost is paid, so it is worth a point more than the 5 of a card in
+    // hand. Without this, suspending only ever looks like losing a card. Only forge sim counts it.
+    private static final int SUSPENDED_CARD_VALUE = 6;
     private static final int MAX_DISCOUNTED_TURNS = 1000000;
 
     /** True for any score that means the AI has won, however far off that win is. */
@@ -138,6 +142,9 @@ public class GameStateEvaluator {
                 int fullValueCards = player.isUnlimitedHandSize()
                         ? cards : min(cards, player.getMaxHandSize());
                 score += cards + 4 * fullValueCards;
+                if (game.AI_SIM_SEARCH) {
+                    score += SUSPENDED_CARD_VALUE * CardLists.count(player.getCardsIn(ZoneType.Exile), Card::hasSuspend);
+                }
                 teamLife += player.getLife();
                 teamPlayers++;
                 if (player == aiPlayer) {
