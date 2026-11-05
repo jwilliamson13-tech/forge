@@ -8,6 +8,7 @@ import forge.ai.simulation.GameStateEvaluator.Score;
 import forge.game.Game;
 import forge.game.ability.ApiType;
 import forge.game.card.*;
+import forge.game.keyword.Keyword;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.spellability.AbilitySub;
@@ -194,15 +195,7 @@ public class SpellAbilityPicker {
 
         PhaseType currentPhase = game.getPhaseHandler().getPhase();
         if (currentPhase.isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)) {
-            List<SpellAbility> candidateSAs2 = new ArrayList<>();
-            for (SpellAbility sa : candidateSAs) {
-                if (!SpellAbilityAi.isSorcerySpeed(sa, player)) {
-                    if (printOutput) {
-                        System.err.println("Not sorcery: " + sa);
-                    }
-                    candidateSAs2.add(sa);
-                }
-            }
+            List<SpellAbility> candidateSAs2 = abilitiesToRetryAfterBlockers(candidateSAs);
             if (!candidateSAs2.isEmpty()) {
                 if (printOutput) {
                     System.err.println("Formula plan with phase bloom");
@@ -218,6 +211,32 @@ public class SpellAbilityPicker {
 
         printPlan(bestPlan, "Current phase (" + currentPhase + ")");
         plan = bestPlan;
+    }
+
+    /** The candidates worth asking "would this be better after blockers?" about: those still legal at that point. */
+    List<SpellAbility> abilitiesToRetryAfterBlockers(List<SpellAbility> candidateSAs) {
+        List<SpellAbility> retry = new ArrayList<>();
+        for (SpellAbility sa : candidateSAs) {
+            if (!SpellAbilityAi.isSorcerySpeed(sa, player) && !isSuspendAtSorceryTiming(sa)) {
+                if (printOutput) {
+                    System.err.println("Not sorcery: " + sa);
+                }
+                retry.add(sa);
+            }
+        }
+        return retry;
+    }
+
+    /**
+     * Suspend is neither a spell nor an activated ability, so isSorcerySpeed doesn't see that it follows the timing of
+     * its card: a sorcery can't be suspended during combat, and retrying it there only fails to find the ability.
+     */
+    private boolean isSuspendAtSorceryTiming(SpellAbility sa) {
+        if (!game.AI_SIM_SEARCH || !sa.isKeyword(Keyword.SUSPEND)) {
+            return false;
+        }
+        Card host = sa.getHostCard();
+        return !host.getFirstSpellAbility().withFlash(host, player);
     }
 
     private SpellAbility chooseSpellAbilityToPlayImpl(SimulationController controller, List<SpellAbility> candidateSAs, Score origGameScore, PhaseType phase) {
