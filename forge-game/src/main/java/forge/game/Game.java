@@ -103,6 +103,9 @@ public class Game {
     // Search steps per AI decision. 0 means no budget, and only AI_TIMEOUT limits a decision. Set by forge sim, for runs
     // that have to replay from their seed. Never copied: a search in a simulated game spends the real decision's budget.
     public int AI_SEARCH_BUDGET = 0;
+    // Search changes that stay out of default play (issue 51). Set by forge sim when a seat searches, and copied into
+    // simulated games, so that a search scores and retries the same way at every depth.
+    public boolean AI_SIM_SEARCH = false;
     // Whether heuristic AI players may refine their main phase choices with flat Monte Carlo rollouts.
     // False here on purpose: it is really set by the Match/Preferences (MATCH_AI_FLAT_MONTE_CARLO, default true),
     // and games copied for AI simulation never inherit it, so rollouts cannot recurse into themselves.

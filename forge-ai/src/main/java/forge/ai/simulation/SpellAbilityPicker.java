@@ -14,6 +14,7 @@ import forge.game.spellability.AbilitySub;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityCondition;
 import forge.game.zone.ZoneType;
+import forge.util.AITimeoutTracker;
 import forge.util.MyRandom;
 import forge.util.TextUtil;
 
@@ -31,6 +32,8 @@ public class SpellAbilityPicker {
 
     private Plan plan;
     private int numSimulations;
+    /** The turn of a stopped decision that could have played a land, until the end of that turn shows if one was played. */
+    private int stoppedWithLandOnTurn = -1;
 
     public SpellAbilityPicker(Player player) {
         this.game = player.getGame();
@@ -102,6 +105,10 @@ public class SpellAbilityPicker {
     public SpellAbility chooseSpellAbilityToPlay(SimulationController controller) {
         //printOutput = controller == null;
 
+        if (controller == null) {
+            countMissedLandDrop();
+        }
+
         // Pass if top of stack is owned by me.
         if (!game.getStack().isEmpty() && game.getStack().peekAbility().getActivatingPlayer().equals(player)) {
             return null;
@@ -120,8 +127,40 @@ public class SpellAbilityPicker {
         if (sa != null) {
             return sa;
         }
-        createNewPlan(origGameScore, candidateSAs);
+        try {
+            createNewPlan(origGameScore, candidateSAs);
+        } catch (AITimeoutTracker.Expired e) {
+            noteStop(candidateSAs, null);
+            throw e;
+        }
         return getPlannedSpellAbility(origGameScore, candidateSAs);
+    }
+
+    /** True for the real decisions of a forge sim game, and false for default play and for an AI inside a simulated game. */
+    private boolean isSimDecision() {
+        return game.AI_SIM_SEARCH && !game.isSimulationCopy();
+    }
+
+    private void noteStop(List<SpellAbility> candidateSAs, SpellAbility chosen) {
+        if (!isSimDecision()) {
+            return;
+        }
+        boolean land = candidateSAs.stream().anyMatch(SpellAbility::isLandAbility);
+        AITimeoutTracker.noteStop(chosen != null, land);
+        if (land) {
+            stoppedWithLandOnTurn = game.getPhaseHandler().getTurn();
+        }
+    }
+
+    /** A land can still go down after a stop, in the second main phase, so the end of the turn is what settles it. */
+    private void countMissedLandDrop() {
+        if (stoppedWithLandOnTurn == -1 || !game.getPhaseHandler().is(PhaseType.END_OF_TURN)) {
+            return;
+        }
+        if (stoppedWithLandOnTurn == game.getPhaseHandler().getTurn() && player.getLandsPlayedThisTurn() == 0) {
+            AITimeoutTracker.noteLandDropMissed();
+        }
+        stoppedWithLandOnTurn = -1;
     }
 
     private Plan formulatePlanWithPhase(Score origGameScore, List<SpellAbility> candidateSAs, PhaseType phase) {

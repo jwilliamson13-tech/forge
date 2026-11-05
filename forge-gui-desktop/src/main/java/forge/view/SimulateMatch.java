@@ -52,6 +52,8 @@ public class SimulateMatch {
     private static int searchBudget = 0;
     /** True with -sim or -budget. Without them the output stays what stock Forge prints. */
     private static boolean printAiLimits = false;
+    /** True when -sim gives a seat a mode that searches. Only then do the search changes of Game.AI_SIM_SEARCH apply. */
+    private static boolean simSearch = false;
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
@@ -135,6 +137,7 @@ public class SimulateMatch {
             }
         }
         printAiLimits = searchBudget > 0 || params.containsKey("sim");
+        simSearch = anySeatSearches(params.get("sim"));
 
         Long seed = null;
         if (params.containsKey("s")) {
@@ -280,6 +283,11 @@ public class SimulateMatch {
         }
     }
 
+    /** True if any -sim value is a mode that searches. Null means the flag was left out. */
+    static boolean anySeatSearches(List<String> simModes) {
+        return simModes != null && (simModes.contains(SIM_MODE_HYBRID) || simModes.contains(SIM_MODE_FULL));
+    }
+
     /** The AI options behind a -sim mode name, or null if there is no such mode. */
     static Set<AIOption> aiOptionsForSimMode(String mode) {
         switch (mode) {
@@ -329,9 +337,14 @@ public class SimulateMatch {
             // no decision can outlast the game, so this leaves the budget as the only limit on one
             g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
         }
+        g1.AI_SIM_SEARCH = simSearch;
         final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
         final long stopsBefore = AITimeoutTracker.budgetStops();
         final long drawsBefore = MyRandom.callCount();
+        final long playedBefore = AITimeoutTracker.stopsPlayed();
+        final long passedBefore = AITimeoutTracker.stopsPassed();
+        final long withLandBefore = AITimeoutTracker.stopsWithLand();
+        final long missedBefore = AITimeoutTracker.landDropsMissed();
         // will run match in the same thread
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -361,9 +374,12 @@ public class SimulateMatch {
         }
 
         if (printAiLimits) {
-            System.out.printf("AI limits: %d deadline expiries, %d budget stops, %d random draws%n",
+            System.out.printf("AI limits: %d deadline expiries, %d budget stops, %d random draws, "
+                            + "%d stops played, %d stops passed, %d stops with a land, %d land drops missed%n",
                     AITimeoutTracker.deadlineExpiries() - expiriesBefore, AITimeoutTracker.budgetStops() - stopsBefore,
-                    MyRandom.callCount() - drawsBefore);
+                    MyRandom.callCount() - drawsBefore, AITimeoutTracker.stopsPlayed() - playedBefore,
+                    AITimeoutTracker.stopsPassed() - passedBefore, AITimeoutTracker.stopsWithLand() - withLandBefore,
+                    AITimeoutTracker.landDropsMissed() - missedBefore);
         }
 
         // If both players life totals to 0 in a single turn, the game should end in a draw
