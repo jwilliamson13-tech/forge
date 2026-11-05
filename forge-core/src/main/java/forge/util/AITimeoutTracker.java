@@ -315,6 +315,12 @@ public final class AITimeoutTracker {
         }
     }
 
+    /** True once {@link #check()} would throw for a used-up limit. Unlike check() it has no effect on the counts. */
+    public static boolean isStopped() {
+        final Limit l = LIMIT.get();
+        return l.stepsLeft == 0 || (l.armed && System.nanoTime() - l.deadlineNanos >= 0);
+    }
+
     /** Nanoseconds left of this thread's armed deadline (Long.MAX_VALUE when not armed). */
     public static long remainingNanos() {
         final Limit l = LIMIT.get();

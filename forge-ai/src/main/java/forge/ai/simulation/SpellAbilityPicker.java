@@ -33,6 +33,8 @@ public class SpellAbilityPicker {
 
     private Plan plan;
     private int numSimulations;
+    /** True when the search of the current forge sim decision ran out of budget or time. */
+    private boolean stopped;
     /** The turn of a stopped decision that could have played a land, until the end of that turn shows if one was played. */
     private int stoppedWithLandOnTurn = -1;
 
@@ -128,13 +130,23 @@ public class SpellAbilityPicker {
         if (sa != null) {
             return sa;
         }
-        try {
-            createNewPlan(origGameScore, candidateSAs);
-        } catch (AITimeoutTracker.Expired e) {
-            noteStop(candidateSAs, null);
-            throw e;
+        stopped = false;
+        createNewPlan(origGameScore, candidateSAs);
+        sa = getPlannedSpellAbility(origGameScore, candidateSAs);
+        if (stopped) {
+            noteStop(candidateSAs, sa);
+            clearHypotheticalCasts(candidateSAs);
         }
-        return getPlannedSpellAbility(origGameScore, candidateSAs);
+        return sa;
+    }
+
+    /** Asking a spell if it can be played leaves it as the card's castSA. AiController clears that after its own checks. */
+    private void clearHypotheticalCasts(List<SpellAbility> candidateSAs) {
+        for (SpellAbility sa : candidateSAs) {
+            if (sa.isSpell()) {
+                sa.getHostCard().setCastSA(null);
+            }
+        }
     }
 
     /** True for the real decisions of a forge sim game, and false for default play and for an AI inside a simulated game. */
@@ -143,9 +155,6 @@ public class SpellAbilityPicker {
     }
 
     private void noteStop(List<SpellAbility> candidateSAs, SpellAbility chosen) {
-        if (!isSimDecision()) {
-            return;
-        }
         boolean land = candidateSAs.stream().anyMatch(SpellAbility::isLandAbility);
         AITimeoutTracker.noteStop(chosen != null, land);
         if (land) {
@@ -166,11 +175,33 @@ public class SpellAbilityPicker {
 
     private Plan formulatePlanWithPhase(Score origGameScore, List<SpellAbility> candidateSAs, PhaseType phase) {
         SimulationController controller = new SimulationController(origGameScore);
+        if (isSimDecision()) {
+            return formulatePlanOrBestLine(controller, origGameScore, candidateSAs, phase);
+        }
         SpellAbility sa = chooseSpellAbilityToPlayImpl(controller, candidateSAs, origGameScore, phase);
         if (sa != null) {
             return controller.getBestPlan();
         }
         return null;
+    }
+
+    /**
+     * In forge sim a search that is stopped keeps what it found instead of throwing it away. Only the real decision does
+     * this: the search works on copies, so all a stop leaves behind in the real game is the random stream, which
+     * evaluateSa restores only when it finishes.
+     */
+    private Plan formulatePlanOrBestLine(SimulationController controller, Score origGameScore, List<SpellAbility> candidateSAs, PhaseType phase) {
+        Random origRandom = MyRandom.getRandom();
+        try {
+            SpellAbility sa = chooseSpellAbilityToPlayImpl(controller, candidateSAs, origGameScore, phase);
+            // An AI inside a simulated game catches a stop and passes, so a search can get here on scores cut short.
+            AITimeoutTracker.check();
+            return sa != null ? controller.getBestPlan() : null;
+        } catch (AITimeoutTracker.Expired e) {
+            stopped = true;
+            MyRandom.setRandom(origRandom);
+            return controller.getBestLineSoFar();
+        }
     }
 
     private void printPlan(Plan plan, String intro) {
@@ -194,7 +225,7 @@ public class SpellAbilityPicker {
         }
 
         PhaseType currentPhase = game.getPhaseHandler().getPhase();
-        if (currentPhase.isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)) {
+        if (!stopped && currentPhase.isBefore(PhaseType.COMBAT_DECLARE_BLOCKERS)) {
             List<SpellAbility> candidateSAs2 = abilitiesToRetryAfterBlockers(candidateSAs);
             if (!candidateSAs2.isEmpty()) {
                 if (printOutput) {
