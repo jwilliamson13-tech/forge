@@ -2,6 +2,7 @@ package forge.util;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Tracks the single shared deadline of an AI player's current "thinking" session, so that
@@ -178,6 +179,64 @@ public final class AITimeoutTracker {
         boolean armed;
         boolean honourInterrupt;
         long deadlineNanos;
+        /** Search steps left in this thread's budget, or NO_BUDGET. Zero means the budget ran out. */
+        long stepsLeft = NO_BUDGET;
+    }
+
+    private static final long NO_BUDGET = -1;
+
+    private static final AtomicLong DEADLINE_EXPIRIES = new AtomicLong();
+    private static final AtomicLong LAST_EXPIRED_DEADLINE = new AtomicLong();
+    private static final AtomicLong BUDGET_STOPS = new AtomicLong();
+
+    /**
+     * Records that the deadline of a decision passed. Every thread and nested session of one decision shares the same
+     * absolute deadline, and a decision can throw many times on its way out, so a deadline counts only once.
+     */
+    public static void noteDeadlineExpired(final long deadlineNanos) {
+        if (LAST_EXPIRED_DEADLINE.getAndSet(deadlineNanos) != deadlineNanos) {
+            DEADLINE_EXPIRIES.incrementAndGet();
+        }
+    }
+
+    /** How many AI decisions have been cut short by the clock since this JVM started. */
+    public static long deadlineExpiries() {
+        return DEADLINE_EXPIRIES.get();
+    }
+
+    /** How many AI decisions have been cut short by their search budget since this JVM started. */
+    public static long budgetStops() {
+        return BUDGET_STOPS.get();
+    }
+
+    /**
+     * Gives this thread a budget of search steps, for runs that have to replay: unlike a deadline it runs out at the
+     * same point on a busy machine and an idle one. Does nothing when the budget is not positive or one is already
+     * armed, so that the search inside a simulated game spends the budget of the real decision.
+     * @return true when this call armed a budget, and the caller must end it with {@link #disarmBudget()}
+     */
+    public static boolean armBudget(final long steps) {
+        final Limit l = LIMIT.get();
+        if (steps <= 0 || l.stepsLeft != NO_BUDGET) {
+            return false;
+        }
+        l.stepsLeft = steps;
+        return true;
+    }
+
+    public static void disarmBudget() {
+        LIMIT.get().stepsLeft = NO_BUDGET;
+    }
+
+    /** Spends one search step. Throws {@link Expired} when that was the last one. No-op without a budget. */
+    public static void spendStep() {
+        final Limit l = LIMIT.get();
+        if (l.stepsLeft > 0 && --l.stepsLeft == 0) {
+            BUDGET_STOPS.incrementAndGet();
+        }
+        if (l.stepsLeft == 0) {
+            throw new Expired();
+        }
     }
 
     private static final ThreadLocal<Limit> LIMIT = ThreadLocal.withInitial(Limit::new);
@@ -210,7 +269,11 @@ public final class AITimeoutTracker {
     /** Cheap: call it inside AI loops. Throws {@link Expired} once the armed deadline passed (no-op when not armed). */
     public static void check() {
         final Limit l = LIMIT.get();
+        if (l.stepsLeft == 0) {
+            throw new Expired();
+        }
         if (l.armed && (System.nanoTime() - l.deadlineNanos >= 0 || (l.honourInterrupt && Thread.currentThread().isInterrupted()))) {
+            noteDeadlineExpired(l.deadlineNanos);
             throw new Expired();
         }
     }

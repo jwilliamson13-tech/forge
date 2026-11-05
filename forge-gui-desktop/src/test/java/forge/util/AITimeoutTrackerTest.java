@@ -9,6 +9,58 @@ public class AITimeoutTrackerTest {
     private static final long SEC = TimeUnit.SECONDS.toNanos(1);
 
     @Test
+    public void aBudgetRunsOutOnTheLastStepAndStaysOut() {
+        Assert.assertTrue(AITimeoutTracker.armBudget(2));
+        try {
+            final long stops = AITimeoutTracker.budgetStops();
+            AITimeoutTracker.spendStep();
+            AITimeoutTracker.check(); // one step left: must not throw
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::spendStep);
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::spendStep);
+            Assert.assertEquals(AITimeoutTracker.budgetStops(), stops + 1, "one decision, one stop");
+        } finally {
+            AITimeoutTracker.disarmBudget();
+        }
+        AITimeoutTracker.check(); // the next decision starts clean
+    }
+
+    @Test
+    public void withoutABudgetStepsCostNothing() {
+        Assert.assertFalse(AITimeoutTracker.armBudget(0));
+        for (int i = 0; i < 1000; i++) {
+            AITimeoutTracker.spendStep();
+        }
+        AITimeoutTracker.check();
+    }
+
+    @Test
+    public void aNestedDecisionSpendsTheOuterBudget() {
+        Assert.assertTrue(AITimeoutTracker.armBudget(3));
+        try {
+            AITimeoutTracker.spendStep();
+            Assert.assertFalse(AITimeoutTracker.armBudget(100), "a simulated game must not get a fresh budget");
+            AITimeoutTracker.spendStep();
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::spendStep);
+        } finally {
+            AITimeoutTracker.disarmBudget();
+        }
+    }
+
+    @Test
+    public void aDeadlineCountsOnceHoweverOftenItThrows() {
+        final long expiries = AITimeoutTracker.deadlineExpiries();
+        final Object t = AITimeoutTracker.arm(System.nanoTime() - 1, false);
+        try {
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+        } finally {
+            AITimeoutTracker.disarm(t);
+        }
+        Assert.assertEquals(AITimeoutTracker.deadlineExpiries(), expiries + 1);
+    }
+
+    @Test
     public void checkIsNoOpWhenNotArmed() {
         AITimeoutTracker.check();
         Assert.assertEquals(AITimeoutTracker.remainingNanos(), Long.MAX_VALUE);

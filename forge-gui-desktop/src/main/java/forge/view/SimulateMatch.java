@@ -32,6 +32,7 @@ import forge.gui.GuiBase;
 import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
 import forge.player.GamePlayerUtil;
+import forge.util.AITimeoutTracker;
 import forge.util.Lang;
 import forge.util.MyRandom;
 import forge.util.TextUtil;
@@ -46,6 +47,11 @@ public class SimulateMatch {
     private static final String SIM_MODE_HEURISTIC = "heuristic";
     private static final String SIM_MODE_HYBRID = "hybrid";
     private static final String SIM_MODE_FULL = "full";
+
+    /** Set by -budget: search steps per AI decision, or 0 to leave the wall-clock limit in charge. */
+    private static int searchBudget = 0;
+    /** True with -sim or -budget. Without them the output stays what stock Forge prints. */
+    private static boolean printAiLimits = false;
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
@@ -119,6 +125,16 @@ public class SimulateMatch {
             }
         }
         FlatMonteCarloStats.reset();
+
+        searchBudget = 0;
+        if (params.containsKey("budget")) {
+            searchBudget = parseSearchBudget(params.get("budget"));
+            if (searchBudget == 0) {
+                System.out.println("-budget takes a whole number of search steps above zero: " + params.get("budget"));
+                return;
+            }
+        }
+        printAiLimits = searchBudget > 0 || params.containsKey("sim");
 
         Long seed = null;
         if (params.containsKey("s")) {
@@ -252,6 +268,18 @@ public class SimulateMatch {
         System.out.flush();
     }
 
+    /** The search steps in a -budget value, or 0 if it isn't a whole number above zero. */
+    static int parseSearchBudget(List<String> values) {
+        if (values.size() != 1) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(values.get(0)));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /** The AI options behind a -sim mode name, or null if there is no such mode. */
     static Set<AIOption> aiOptionsForSimMode(String mode) {
         switch (mode) {
@@ -267,7 +295,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -280,6 +308,7 @@ public class SimulateMatch {
         System.out.println("\tS - RNG seed for simulation");
         System.out.println("\tA - AI profile per player, in the same order as the decks (e.g. -a Default Experimental)");
         System.out.println("\tSIM - Simulation mode per player, in the same order as the decks: heuristic, hybrid or full (e.g. -sim full heuristic). Players left out and runs without the flag stay heuristic. With the flag, result lines name each player's mode as [sim=mode]. Not for tournaments.");
+        System.out.println("\tB - Search steps per AI decision. Replaces the wall-clock limit on AI decisions with a count, so that a run replays from its seed on a busy machine too. A decision that runs out passes priority, as one that runs out of time does.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
@@ -295,6 +324,14 @@ public class SimulateMatch {
             g1.AI_FLAT_MONTE_CARLO = flatMonteCarlo;
             g1.AI_FLAT_MONTE_CARLO_MAX = Boolean.TRUE.equals(flatMonteCarloMax);
         }
+        if (searchBudget > 0) {
+            g1.AI_SEARCH_BUDGET = searchBudget;
+            // no decision can outlast the game, so this leaves the budget as the only limit on one
+            g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
+        }
+        final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
+        final long stopsBefore = AITimeoutTracker.budgetStops();
+        final long drawsBefore = MyRandom.callCount();
         // will run match in the same thread
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -321,6 +358,12 @@ public class SimulateMatch {
         Collections.reverse(log);
         for (GameLogEntry l : log) {
             System.out.println(l);
+        }
+
+        if (printAiLimits) {
+            System.out.printf("AI limits: %d deadline expiries, %d budget stops, %d random draws%n",
+                    AITimeoutTracker.deadlineExpiries() - expiriesBefore, AITimeoutTracker.budgetStops() - stopsBefore,
+                    MyRandom.callCount() - drawsBefore);
         }
 
         // If both players life totals to 0 in a single turn, the game should end in a draw
