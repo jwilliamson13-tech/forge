@@ -8,6 +8,7 @@ import java.util.concurrent.TimeoutException;
 import org.apache.commons.lang3.time.StopWatch;
 
 import forge.LobbyPlayer;
+import forge.ai.AIOption;
 import forge.ai.AiProfileUtil;
 import forge.ai.simulation.FlatMonteCarloStats;
 import forge.deck.Deck;
@@ -27,6 +28,7 @@ import forge.gamemodes.tournament.system.TournamentPairing;
 import forge.gamemodes.tournament.system.TournamentPlayer;
 import forge.gamemodes.tournament.system.TournamentRoundRobin;
 import forge.gamemodes.tournament.system.TournamentSwiss;
+import forge.gui.GuiBase;
 import forge.localinstance.properties.ForgeConstants;
 import forge.model.FModel;
 import forge.player.GamePlayerUtil;
@@ -40,6 +42,10 @@ public class SimulateMatch {
     /** Set by -mc: null leaves the game default (off, as the GUI's preference is only applied by HostedMatch). */
     private static Boolean flatMonteCarlo = null;
     private static Boolean flatMonteCarloMax = null;
+
+    private static final String SIM_MODE_HEURISTIC = "heuristic";
+    private static final String SIM_MODE_HYBRID = "hybrid";
+    private static final String SIM_MODE_FULL = "full";
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
@@ -133,6 +139,11 @@ public class SimulateMatch {
         }
 
         if (params.containsKey("t")) {
+            if (params.containsKey("sim")) {
+                // Tournament players are built elsewhere, and a seat that quietly stayed heuristic would skew the results.
+                System.out.println("-sim sets a mode per deck, so it cannot be used with -t");
+                return;
+            }
             simulateTournament(params, rules, outputGamelog);
             System.out.flush();
             return;
@@ -157,6 +168,19 @@ public class SimulateMatch {
             }
         }
 
+        // Optional simulation mode per player, in the same order as the decks. Only the desktop lobby
+        // could set this before, so a simulation always ran the heuristic AI.
+        List<String> simModes = params.get("sim");
+        if (simModes != null) {
+            for (String mode : simModes) {
+                if (aiOptionsForSimMode(mode) == null) {
+                    System.out.println(TextUtil.concatNoSpace("Unknown simulation mode - ", mode,
+                            ". Available modes: ", SIM_MODE_HEURISTIC, ", ", SIM_MODE_HYBRID, ", ", SIM_MODE_FULL));
+                    return;
+                }
+            }
+        }
+
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
                 Deck d = deckFromCommandLineParameter(deck, type, deckDir);
@@ -168,7 +192,12 @@ public class SimulateMatch {
                     sb.append(" vs ");
                 }
                 String profile = aiProfiles != null && aiProfiles.size() >= i ? aiProfiles.get(i - 1) : "";
+                String simMode = simModes != null && simModes.size() >= i ? simModes.get(i - 1) : SIM_MODE_HEURISTIC;
                 String name = TextUtil.concatNoSpace("Ai(", String.valueOf(i), ")-", d.getName());
+                if (simModes != null) {
+                    // In the name, so that every result line says which mode the seat played.
+                    name = TextUtil.concatNoSpace(name, " [sim=", simMode, "]");
+                }
                 sb.append(name);
                 if (!profile.isEmpty()) {
                     sb.append(" [").append(profile).append("]");
@@ -181,7 +210,11 @@ public class SimulateMatch {
                 } else {
                     rp = new RegisteredPlayer(d);
                 }
-                rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, profile));
+                // The same sleeve draw as createAiPlayer(name, avatarIndex, profile), which takes no options,
+                // so that a seed still replays the same games.
+                int sleeveCount = GuiBase.getInterface().getSleevesCount();
+                int sleeveIndex = sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount);
+                rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile));
                 pp.add(rp);
                 i++;
             }
@@ -219,8 +252,22 @@ public class SimulateMatch {
         System.out.flush();
     }
 
+    /** The AI options behind a -sim mode name, or null if there is no such mode. */
+    static Set<AIOption> aiOptionsForSimMode(String mode) {
+        switch (mode) {
+            case SIM_MODE_HEURISTIC:
+                return Collections.emptySet();
+            case SIM_MODE_HYBRID:
+                return Collections.singleton(AIOption.USE_HYBRID_SIMULATION);
+            case SIM_MODE_FULL:
+                return Collections.singleton(AIOption.USE_FULL_SIMULATION);
+            default:
+                return null;
+        }
+    }
+
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -232,6 +279,7 @@ public class SimulateMatch {
         System.out.println("\tF - format of games, defaults to constructed");
         System.out.println("\tS - RNG seed for simulation");
         System.out.println("\tA - AI profile per player, in the same order as the decks (e.g. -a Default Experimental)");
+        System.out.println("\tSIM - Simulation mode per player, in the same order as the decks: heuristic, hybrid or full (e.g. -sim full heuristic). Players left out and runs without the flag stay heuristic. With the flag, result lines name each player's mode as [sim=mode]. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
