@@ -41,6 +41,7 @@ public class GameSimulator {
     }
 
     public GameSimulator(SimulationController controller, Game origGame, Player origAiPlayer, PhaseType advanceToPhase) {
+        AITimeoutTracker.spendStep();
         this.controller = controller;
         copier = new GameCopier(origGame);
         simGame = copier.makeCopy(advanceToPhase, origAiPlayer);

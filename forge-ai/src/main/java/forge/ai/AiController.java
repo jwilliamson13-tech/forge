@@ -1598,6 +1598,7 @@ public class AiController {
         final long timeoutNanos = TimeUnit.SECONDS.toNanos(game.getAITimeout());
         AITimeoutTracker.begin(id, timeoutNanos);
         final Object limit = AITimeoutTracker.arm(AITimeoutTracker.deadlineNanos(id, timeoutNanos), false);
+        final boolean budgeted = AITimeoutTracker.armBudget(game.AI_SEARCH_BUDGET);
         try {
             if (SimAudit.ENABLED) {
                 SimAudit.checkpoint(game, player);
@@ -1610,6 +1611,9 @@ public class AiController {
         } catch (AITimeoutTracker.Expired e) {
             return null; // out of time: pass priority
         } finally {
+            if (budgeted) {
+                AITimeoutTracker.disarmBudget();
+            }
             AITimeoutTracker.disarm(limit);
             AITimeoutTracker.end(id);
         }
@@ -2683,6 +2687,7 @@ public class AiController {
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             e.printStackTrace();
             if (e instanceof TimeoutException) {
+                AITimeoutTracker.noteDeadlineExpired(deadlineNanos);
                 // log where the eval thread currently is - each timeout doubles as a
                 // profiler sample for diagnosing remaining AI slowdowns from user logs
                 StringBuilder sb = new StringBuilder("AI eval thread at timeout:");

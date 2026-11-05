@@ -100,6 +100,9 @@ public class Game {
 
     private final Zone stackZone = new Zone(ZoneType.Stack, this);
     public int AI_TIMEOUT = 5;
+    // Search steps per AI decision. 0 means no budget, and only AI_TIMEOUT limits a decision. Set by forge sim, for runs
+    // that have to replay from their seed. Never copied: a search in a simulated game spends the real decision's budget.
+    public int AI_SEARCH_BUDGET = 0;
     // Whether heuristic AI players may refine their main phase choices with flat Monte Carlo rollouts.
     // False here on purpose: it is really set by the Match/Preferences (MATCH_AI_FLAT_MONTE_CARLO, default true),
     // and games copied for AI simulation never inherit it, so rollouts cannot recurse into themselves.

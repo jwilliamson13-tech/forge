@@ -1,5 +1,6 @@
 package forge.view;
 
+import java.util.List;
 import java.util.Set;
 
 import org.testng.annotations.Test;
@@ -26,5 +27,14 @@ public class SimulateMatchSimModeTest {
     @Test
     public void anUnknownModeIsRefused() {
         assertNull(SimulateMatch.aiOptionsForSimMode("Full"));
+    }
+
+    @Test
+    public void aBudgetIsAWholeNumberAboveZero() {
+        assertEquals(400, SimulateMatch.parseSearchBudget(List.of("400")));
+        assertEquals(0, SimulateMatch.parseSearchBudget(List.of("0")));
+        assertEquals(0, SimulateMatch.parseSearchBudget(List.of("-5")));
+        assertEquals(0, SimulateMatch.parseSearchBudget(List.of("many")));
+        assertEquals(0, SimulateMatch.parseSearchBudget(List.of()));
     }
 }
