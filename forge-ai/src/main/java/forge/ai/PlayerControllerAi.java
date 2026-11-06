@@ -137,7 +137,7 @@ public class PlayerControllerAi extends PlayerController {
                 continue;
             }
             List<PaperCard> known = match.getPlayedMain(rp);
-            if (known == null && rp.getDeck() != null) {
+            if (known == null && rp.getDeck() != null && !HonestPlay.on(player)) {
                 known = rp.getDeck().getMain().toFlatList();
             }
             if (known != null && !known.isEmpty()) {

@@ -95,6 +95,9 @@ public class RearrangeTopOfLibraryAi extends SpellAbilityAi {
                 : AbilityUtils.getDefinedPlayers(sa.getHostCard(), sa.getParam("Defined"), sa);
 
         Player p = pc.getFirst(); // currently always a single target spell
+        if (HonestPlay.on(player) && !p.equals(player)) {
+            return false; // what they were dealt stays as arranged, and the reveal log doesn't say which card is on top
+        }
         Card top = p.getCardsIn(ZoneType.Library).isEmpty() ? null : p.getCardsIn(ZoneType.Library).getFirst();
         if (top == null) {
             return false;

@@ -1512,11 +1512,13 @@ public class ChangeZoneAi extends SpellAbilityAi {
         if (player.isOpponentOf(decider) && ZoneType.Hand.equals(destination) && origin.contains(ZoneType.Sideboard)) {
             return ComputerUtilCard.getWorstAI(fetchList);
         }
-        List<String> keyCards = player.getRegisteredPlayer().getDeck().getKeyCards();
+        // another player's key cards are a line in their deck list
+        final boolean othersDeck = HonestPlay.on(decider) && !player.equals(decider);
+        List<String> keyCards = othersDeck ? new ArrayList<>() : player.getRegisteredPlayer().getDeck().getKeyCards();
         String position = sa.getParamOrDefault("LibraryPosition", null);
         // Focus on the keycards I don't already have access to
-        if (destination.equals(ZoneType.Battlefield) || destination.equals(ZoneType.Hand) ||
-                (destination.equals(ZoneType.Library) && "0".equals(position))) {
+        if (!othersDeck && (destination.equals(ZoneType.Battlefield) || destination.equals(ZoneType.Hand) ||
+                (destination.equals(ZoneType.Library) && "0".equals(position)))) {
             for (Card c : player.getCardsIn(ZoneType.Hand, ZoneType.Battlefield)) {
                 keyCards.remove(c.getName());
             }
