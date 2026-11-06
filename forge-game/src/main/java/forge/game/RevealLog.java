@@ -27,15 +27,17 @@ import forge.game.zone.ZoneType;
 public final class RevealLog {
     /**
      * One card as it was written down. The values are from the moment it was revealed, and don't follow the card.
-     * {@code card} is the object seen then, so asking it where the card is now would be a peek.
+     * {@code card} is the object seen then, so asking it where the card is now would be a peek. {@code seenIn} is where
+     * it was the last time it was shown, which is the most a notepad can say.
      */
-    public record Entry(int id, Player owner, String name, CardStateName face, Integer power, Integer toughness, Card card) {
+    public record Entry(int id, Player owner, String name, CardStateName face, Integer power, Integer toughness, ZoneType seenIn, Card card) {
         private static Entry of(final Card card) {
             // a face-down card can only be here because its real side was shown
             final CardState seen = card.isFaceDown() ? card.getState(CardStateName.Original) : card.getCurrentState();
             final boolean creature = seen.getType().isCreature();
             return new Entry(card.getId(), card.getOwner(), card.getName(seen), seen.getStateName(),
-                    creature ? seen.getBasePower() : null, creature ? seen.getBaseToughness() : null, card);
+                    creature ? seen.getBasePower() : null, creature ? seen.getBaseToughness() : null,
+                    card.getZone() == null ? null : card.getZone().getZoneType(), card);
         }
     }
 
@@ -50,7 +52,7 @@ public final class RevealLog {
     public synchronized void revealed(final Player viewer, final Card card) {
         final Card current = game.getCardState(card);
         if (!current.getOwner().equals(viewer) && !isShowing(current, viewer)) {
-            entries(viewer).putIfAbsent(current.getId(), Entry.of(current));
+            entries(viewer).put(current.getId(), Entry.of(current));
         }
     }
 
@@ -75,7 +77,7 @@ public final class RevealLog {
             for (final ZoneType zone : List.of(ZoneType.Hand, ZoneType.Library)) {
                 for (final Card card : owner.getCardsIn(zone)) {
                     if (card.mayPlayerLook(viewer)) {
-                        entries(viewer).putIfAbsent(card.getId(), Entry.of(card));
+                        entries(viewer).put(card.getId(), Entry.of(card));
                     }
                 }
             }

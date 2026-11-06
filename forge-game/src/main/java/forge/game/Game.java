@@ -112,6 +112,11 @@ public class Game {
     // The hidden-information tripwire. Null unless forge sim set it, so default play pays one null check per zone read.
     // Never copied: reads on a copy the AI searches on see the copy, and copying the real game is issue 25's concern.
     public HiddenReadWatch HIDDEN_READ_WATCH = null;
+    // Whether AI players keep to what a person in their seat could know. False unless forge sim asked for it, so default
+    // play keeps its peeks. Copied to simulated games, so the AI thinks the same way on a copy, where it has no REVEAL_LOG.
+    public boolean AI_HONEST_PLAY = false;
+    // Which AI seat is deciding. Each game has its own, including copies. Empty unless forge sim scopes the controllers.
+    public final DecisionStack AI_DECIDERS = new DecisionStack();
     // Whether heuristic AI players may refine their main phase choices with flat Monte Carlo rollouts.
     // False here on purpose: it is really set by the Match/Preferences (MATCH_AI_FLAT_MONTE_CARLO, default true),
     // and games copied for AI simulation never inherit it, so rollouts cannot recurse into themselves.

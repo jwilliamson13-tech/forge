@@ -2,9 +2,7 @@ package forge.game.zone;
 
 import java.lang.StackWalker.StackFrame;
 import java.util.AbstractList;
-import java.util.ArrayDeque;
 import java.util.Collection;
-import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +23,7 @@ import forge.game.player.Player;
  * <p>
  * Only forge sim makes one, so {@link Game#HIDDEN_READ_WATCH} is null in default play, and in the copies the AI searches
  * on, which is why reads on a copy never count. {@code ScopedPlayerControllerAi} says who is deciding through
- * {@link #enter} and {@link #exit}, on every controller call, so a choice made while a spell resolves has a decider too.
+ * {@link Game#AI_DECIDERS}, on every controller call, so a choice made while a spell resolves has a decider too.
  * <p>
  * Who asked and what they did are separate questions, answered at different times. Who asked is settled when the zone
  * hands over its cards, from the first stack frame that isn't plumbing: forge-ai is a suspect, and anything else is the
@@ -60,17 +58,15 @@ public final class HiddenReadWatch {
             "forge.game.Game.getCardsIn", "forge.game.Game.getCardsIncludePhasingIn",
             "forge.game.Game.getCardsInOwnedBy", "forge.game.Game.getCardsInGame");
 
-    private final Deque<Player> deciders = new ArrayDeque<>();
     private final Map<String, Integer> hits = new TreeMap<>();
 
-    /** {@code player} starts a decision. Decisions nest: a spell the AI casts can ask the other seat to choose. */
-    public synchronized void enter(final Player player) {
-        deciders.push(player);
+    /** {@code player} starts a decision. The stack is the game's, because honest play needs it with the tripwire off. */
+    public void enter(final Player player) {
+        player.getGame().AI_DECIDERS.enter(player);
     }
 
-    /** By player and not by position, because a timed-out AI thread can finish after the decision it belonged to. */
-    public synchronized void exit(final Player player) {
-        deciders.removeFirstOccurrence(player);
+    public void exit(final Player player) {
+        player.getGame().AI_DECIDERS.exit(player);
     }
 
     /** Every hit so far, by stack signature, in signature order. */
@@ -82,17 +78,13 @@ public final class HiddenReadWatch {
         return hits.values().stream().mapToInt(Integer::intValue).sum();
     }
 
-    private synchronized Player decider() {
-        return deciders.peek();
-    }
-
     private synchronized void hit(final String signature) {
         hits.merge(signature, 1, Integer::sum);
     }
 
     /** What a zone hands over: the real list, unless forge-ai is asking for cards that aren't the decider's. */
     CardCollectionView view(final Zone zone, final CardCollection cards) {
-        final Player reader = decider();
+        final Player reader = zone.game.AI_DECIDERS.current();
         final String signature = suspect(zone, reader);
         return signature == null ? cards : new RecordingView(cards, reader, signature);
     }
@@ -114,7 +106,7 @@ public final class HiddenReadWatch {
 
     /** A read straight off the zone, with no collection to hand over, so the use is already known. */
     void directRead(final Zone zone, final CardCollectionView cards) {
-        final Player reader = decider();
+        final Player reader = zone.game.AI_DECIDERS.current();
         final String signature = suspect(zone, reader);
         if (signature != null) {
             countRead(cards, reader, signature);

@@ -63,6 +63,16 @@ public class SimulateMatchRecordOptionsTest {
     }
 
     @Test
+    public void honestPlayTakesOnOrOffAndNotATournament() {
+        assertNull(SimulateMatch.honestOptionProblem(Map.of("d", List.of("a.dck", "b.dck"))));
+        assertNull(SimulateMatch.honestOptionProblem(Map.of("honest", List.of("on"))));
+        assertNull(SimulateMatch.honestOptionProblem(Map.of("honest", List.of("off"))));
+        assertTrue(SimulateMatch.honestOptionProblem(Map.of("honest", List.of("maybe"))).contains("-honest"));
+        assertTrue(SimulateMatch.honestOptionProblem(Map.of("honest", List.of())).contains("-honest"));
+        assertTrue(SimulateMatch.honestOptionProblem(Map.of("honest", List.of("on"), "t", List.of("Bracket"))).contains("-t"));
+    }
+
+    @Test
     public void tripwireTakesOnOrOff() {
         final Map<String, List<String>> params = recordingRun();
         params.put("tripwire", List.of("maybe"));

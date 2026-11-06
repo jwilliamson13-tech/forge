@@ -23,7 +23,6 @@ import forge.game.replacement.ReplacementEffect;
 import forge.game.spellability.*;
 import forge.game.staticability.StaticAbility;
 import forge.game.trigger.WrappedAbility;
-import forge.game.zone.HiddenReadWatch;
 import forge.game.zone.PlayerZone;
 import forge.game.zone.ZoneType;
 import forge.item.PaperCard;
@@ -36,12 +35,12 @@ import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 
 /**
- * A {@link PlayerControllerAi} that tells the game's {@link HiddenReadWatch} which player is deciding.
+ * A {@link PlayerControllerAi} that keeps the game's {@link DecisionStack}, which says which player is deciding.
  * <p>
  * forge-game can't see forge-ai, so every AI decision, including the ones made while a spell resolves, arrives through a
- * controller call. Bracketing each call here is what gives the tripwire a decider. The stack frames can't: both seats
- * run the same classes. Forge sim asks for this class through {@link LobbyPlayerAi#setScopedDecisions}, so default play
- * never makes one. In a game with no watch, such as a copy the AI searches on, the brackets do nothing.
+ * controller call. Bracketing each call here is what gives the tripwire and {@link HonestPlay} a decider. The stack
+ * frames can't: both seats run the same classes. Forge sim asks for this class through
+ * {@link LobbyPlayerAi#setScopedDecisions}, so default play never makes one.
  * <p>
  * Keep one override per override in {@link PlayerControllerAi}. {@code HiddenReadWatchTest} fails if one is missing,
  * which is how a new upstream decision gets caught.
@@ -52,15 +51,12 @@ public final class ScopedPlayerControllerAi extends PlayerControllerAi {
     }
 
     private <T> T choose(final Supplier<T> decision) {
-        final HiddenReadWatch watch = getPlayer().getGame().HIDDEN_READ_WATCH;
-        if (watch == null) {
-            return decision.get();
-        }
-        watch.enter(getPlayer());
+        final DecisionStack deciders = getPlayer().getGame().AI_DECIDERS;
+        deciders.enter(getPlayer());
         try {
             return decision.get();
         } finally {
-            watch.exit(getPlayer());
+            deciders.exit(getPlayer());
         }
     }
 

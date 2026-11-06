@@ -64,6 +64,8 @@ public class SimulateMatch {
     private static GameRecorder.Settings recording = null;
     /** True with -record unless -tripwire off says otherwise. Without records there is nowhere to report a hit. */
     private static boolean tripwire = false;
+    /** True with -honest on: the AI keeps to what a person in its seat could know. See Game.AI_HONEST_PLAY. */
+    private static boolean honest = false;
 
     static void setRecording(final GameRecorder.Settings settings) {
         recording = settings;
@@ -162,6 +164,13 @@ public class SimulateMatch {
 
         tripwire = tripwireOn(params);
 
+        final String honestProblem = honestOptionProblem(params);
+        if (honestProblem != null) {
+            System.out.println(honestProblem);
+            return;
+        }
+        honest = List.of("on").equals(params.get("honest"));
+
         Long seed = null;
         if (params.containsKey("s")) {
             seed = Long.parseLong(params.get("s").get(0));
@@ -258,7 +267,7 @@ public class SimulateMatch {
                 int sleeveCount = GuiBase.getInterface().getSleevesCount();
                 int sleeveIndex = sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount);
                 LobbyPlayer player = GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile);
-                ((LobbyPlayerAi) player).setScopedDecisions(tripwire);
+                ((LobbyPlayerAi) player).setScopedDecisions(tripwire || honest);
                 rp.setPlayer(player);
                 pp.add(rp);
                 // the budget is one value for the run, and a heuristic seat has no search to spend it on
@@ -358,6 +367,19 @@ public class SimulateMatch {
         return null;
     }
 
+    /** Why -honest can't be used, or null if it can or wasn't asked for. It works without -record, on public cards only. */
+    static String honestOptionProblem(Map<String, List<String>> params) {
+        List<String> values = params.get("honest");
+        if (values == null) {
+            return null;
+        }
+        if (!(List.of("on").equals(values) || List.of("off").equals(values))) {
+            return "-honest takes on or off: " + values;
+        }
+        // simulateSingleMatch also plays tournaments, and a tournament's players don't go through the seats set up here
+        return params.containsKey("t") ? "-honest cannot be used with -t" : null;
+    }
+
     /** The tripwire goes with game records, because they are where it reports. Both are off in default play. */
     static boolean tripwireOn(Map<String, List<String>> params) {
         return params.containsKey("record") && !List.of("off").equals(params.get("tripwire"));
@@ -394,7 +416,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -412,6 +434,7 @@ public class SimulateMatch {
         System.out.println("\tID - Batch id for the game records: letters, digits, _ and -.");
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
         System.out.println("\ttripwire - With -record, catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in the game record and in Tripwire lines before each result.");
+        System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
@@ -433,6 +456,7 @@ public class SimulateMatch {
             g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
         }
         g1.AI_SIM_SEARCH = simSearch;
+        g1.AI_HONEST_PLAY = honest;
         final GameRecorder recorder = recording == null ? null : GameRecorder.attach(g1, recording, 1 + iGame);
         final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
         final long stopsBefore = AITimeoutTracker.budgetStops();
