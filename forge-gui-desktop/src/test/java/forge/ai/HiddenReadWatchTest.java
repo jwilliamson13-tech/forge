@@ -188,6 +188,13 @@ public class HiddenReadWatchTest extends AITest {
         assertEquals(List.of("Lightning Bolt", "Island"), real.stream().map(Card::getName).toList());
     }
 
+    /** Aggregates.random takes a different path, with different draws, for anything that isn't a List. */
+    @Test
+    public void aViewIsAListSoItDrawsTheSameRandomNumbers() {
+        startDeciding();
+        assertTrue(opp.getCardsIn(ZoneType.Library) instanceof List);
+    }
+
     @Test
     public void theDecidersOwnZonesDoNotFire() {
         startDeciding();

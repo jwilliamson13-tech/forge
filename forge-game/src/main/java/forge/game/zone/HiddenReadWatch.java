@@ -1,7 +1,7 @@
 package forge.game.zone;
 
 import java.lang.StackWalker.StackFrame;
-import java.util.AbstractCollection;
+import java.util.AbstractList;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Deque;
@@ -162,9 +162,10 @@ public final class HiddenReadWatch {
     /**
      * A zone's cards as forge-ai gets them. Counting them is public information, and any other use is a read, counted
      * once per view. It can't extend CardCollection: FCollection copies another FCollection's list directly, so
-     * {@code new CardCollection(view)} would never reach an overridden iterator.
+     * {@code new CardCollection(view)} would never reach an overridden iterator. It has to stay a List, as the real
+     * collection is, because Aggregates.random draws differently from a List, and a tripwire must not change a game.
      */
-    private final class RecordingView extends AbstractCollection<Card> implements CardCollectionView {
+    private final class RecordingView extends AbstractList<Card> implements CardCollectionView {
         private final CardCollection cards;
         private final Player reader;
         private final String signature;
