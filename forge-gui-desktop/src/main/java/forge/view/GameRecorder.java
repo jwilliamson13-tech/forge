@@ -49,7 +49,7 @@ public final class GameRecorder {
     /** A seat's setup, seat 1 first. The AI profile is read from the game, after any defaulting. */
     public record Seat(String deck, String simMode, int searchBudget) { }
 
-    public record Settings(Path folder, String batchId, long seed, int turnCap, boolean tripwire, List<Seat> seats) { }
+    public record Settings(Path folder, String batchId, long seed, int turnCap, List<Seat> seats) { }
 
     private final Game game;
     private final Settings settings;
@@ -73,9 +73,6 @@ public final class GameRecorder {
     public static GameRecorder attach(final Game game, final Settings settings, final int gameNumber) {
         final GameRecorder recorder = new GameRecorder(game, settings, gameNumber);
         game.REVEAL_LOG = new RevealLog(game);
-        if (settings.tripwire()) {
-            game.HIDDEN_READ_WATCH = new HiddenReadWatch();
-        }
         game.subscribeToEvents(recorder);
         return recorder;
     }
@@ -257,8 +254,8 @@ public final class GameRecorder {
         return tripwire;
     }
 
-    /** The game's tripwire result for stdout, which also covers a game that gets no file. Empty with the tripwire off. */
-    public List<String> tripwireLines() {
+    /** A game's tripwire result for stdout, which also covers a game that gets no file. Empty with the tripwire off. */
+    public static List<String> tripwireLines(final Game game) {
         final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
         final List<String> printed = new ArrayList<>();
         if (watch != null) {

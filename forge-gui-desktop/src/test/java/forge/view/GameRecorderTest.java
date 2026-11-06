@@ -12,8 +12,10 @@ import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +51,7 @@ import forge.game.player.GameLossReason;
 import forge.game.player.Player;
 import forge.game.player.PlayerView;
 import forge.game.player.RegisteredPlayer;
+import forge.game.zone.HiddenReadWatch;
 import forge.game.zone.ZoneType;
 
 public class GameRecorderTest extends AITest {
@@ -80,7 +83,7 @@ public class GameRecorderTest extends AITest {
     }
 
     private GameRecorder.Settings settings(final int turnCap) {
-        return new GameRecorder.Settings(folder, "night-1", 42L, turnCap, tripwire, SEATS);
+        return new GameRecorder.Settings(folder, "night-1", 42L, turnCap, SEATS);
     }
 
     /** A two-seat game on turn 1, main phase 1, seat 1 active, with a recorder attached. */
@@ -94,6 +97,9 @@ public class GameRecorderTest extends AITest {
         fillLibrary(seat2, 10);
         game.getPhaseHandler().devModeSet(PhaseType.MAIN1, seat1, 1);
         game.getPhaseHandler().onStackResolved();
+        if (tripwire) {
+            game.HIDDEN_READ_WATCH = new HiddenReadWatch();
+        }
         return GameRecorder.attach(game, settings(turnCap), 3);
     }
 
@@ -254,7 +260,7 @@ public class GameRecorderTest extends AITest {
         summary.getAsJsonArray("signatures").forEach(signature -> signatures.add(signature.getAsString()));
         assertEquals(new ArrayList<>(game.HIDDEN_READ_WATCH.hitsBySignature().keySet()), signatures);
         assertTrue(signatures.toString(), signatures.stream().anyMatch(s -> s.startsWith("forge.ai.ComputerUtil.hasAFogEffect:")));
-        final List<String> printed = recorder.tripwireLines();
+        final List<String> printed = GameRecorder.tripwireLines(game);
         assertEquals("Tripwire: " + summary.get("hits").getAsInt() + " hits", printed.get(0));
         assertEquals(1 + signatures.size(), printed.size());
         assertTrue(printed.get(1), printed.get(1).startsWith("Tripwire hit: ") && printed.get(1).endsWith(" " + signatures.get(0)));
@@ -270,14 +276,14 @@ public class GameRecorderTest extends AITest {
         final JsonObject summary = readFile().get(0).getAsJsonObject("tripwire");
         assertTrue(summary.get("enabled").getAsBoolean());
         assertEquals(0, summary.get("hits").getAsInt());
-        assertEquals(List.of("Tripwire: 0 hits"), recorder.tripwireLines());
+        assertEquals(List.of("Tripwire: 0 hits"), GameRecorder.tripwireLines(game));
     }
 
     @Test
     public void withTheTripwireOffThereIsNoWatchAndNothingToPrint() {
-        final GameRecorder recorder = startRecording(50);
+        startRecording(50);
         assertNull(game.HIDDEN_READ_WATCH);
-        assertTrue(recorder.tripwireLines().isEmpty());
+        assertTrue(GameRecorder.tripwireLines(game).isEmpty());
     }
 
     @Test
@@ -376,7 +382,7 @@ public class GameRecorderTest extends AITest {
                 new GameRecorder.Seat("GAL_19_18_Burn Red Burn-sligh Generated Deck_27_18", "heuristic", 0),
                 new GameRecorder.Seat("a  b", "heuristic", 0));
         final GameRecorder recorder = GameRecorder.attach(game,
-                new GameRecorder.Settings(folder, "n", 1L, 50, false, seats), 2);
+                new GameRecorder.Settings(folder, "n", 1L, 50, seats), 2);
         game.getPhaseHandler().mainLoopStep();
         endByClock(recorder);
 
@@ -472,6 +478,33 @@ public class GameRecorderTest extends AITest {
         final JsonObject metadata = readFile().get(0);
         assertEquals("win", metadata.get("end_reason").getAsString());
         assertEquals(1, metadata.get("winner").getAsInt());
+    }
+
+    @Test
+    public void theTripwireRunsAndReportsWithoutRecords() {
+        initializeModel();
+        SimulateMatch.setRecording(null);
+        SimulateMatch.setTripwire(true);
+        final Match match = spiedMatch();
+        final List<Boolean> watched = new ArrayList<>();
+        doAnswer(call -> {
+            final Game started = call.getArgument(0);
+            watched.add(started.HIDDEN_READ_WATCH != null);
+            aPriorityPassOn(started);
+            return null;
+        }).when(match).startGame(any(Game.class));
+        final ByteArrayOutputStream printed = new ByteArrayOutputStream();
+        final PrintStream stdout = System.out;
+        System.setOut(new PrintStream(printed, true, StandardCharsets.UTF_8));
+        try {
+            SimulateMatch.simulateSingleMatch(match, 0, false);
+        } finally {
+            System.setOut(stdout);
+            SimulateMatch.setTripwire(false);
+        }
+
+        assertEquals(List.of(true), watched);
+        assertTrue(printed.toString(StandardCharsets.UTF_8).contains("Tripwire: 0 hits"));
     }
 
     @Test

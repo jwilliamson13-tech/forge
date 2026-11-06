@@ -24,6 +24,7 @@ import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
 import forge.game.player.RegisteredPlayer;
+import forge.game.zone.HiddenReadWatch;
 import forge.gamemodes.tournament.system.AbstractTournament;
 import forge.gamemodes.tournament.system.TournamentBracket;
 import forge.gamemodes.tournament.system.TournamentPairing;
@@ -62,10 +63,14 @@ public class SimulateMatch {
     private static boolean simSearch = false;
     /** Set by -record: what to write game records with, or null to write none. */
     private static GameRecorder.Settings recording = null;
-    /** True with -record unless -tripwire off says otherwise. Without records there is nowhere to report a hit. */
+    /** True for forge sim unless -tripwire off says otherwise. It reports in stdout, and in the game record if there is one. */
     private static boolean tripwire = false;
     /** True with -honest on: the AI keeps to what a person in its seat could know. See Game.AI_HONEST_PLAY. */
     private static boolean honest = false;
+
+    static void setTripwire(final boolean on) {
+        tripwire = on;
+    }
 
     static void setRecording(final GameRecorder.Settings settings) {
         recording = settings;
@@ -162,6 +167,11 @@ public class SimulateMatch {
             return;
         }
 
+        final String tripwireProblem = tripwireOptionProblem(params);
+        if (tripwireProblem != null) {
+            System.out.println(tripwireProblem);
+            return;
+        }
         tripwire = tripwireOn(params);
 
         final String honestProblem = honestOptionProblem(params);
@@ -282,7 +292,7 @@ public class SimulateMatch {
 
         if (params.containsKey("record")) {
             recording = new GameRecorder.Settings(Path.of(params.get("record").get(0)), params.get("batch").get(0), seed,
-                    parseTurnCap(params.get("turncap")), tripwire, seats);
+                    parseTurnCap(params.get("turncap")), seats);
         }
 
         sb.append(" - ").append(Lang.nounWithNumeral(nGames, "game")).append(" of ").append(type);
@@ -336,8 +346,7 @@ public class SimulateMatch {
     /** Why these options can't write game records, or null if they can or don't ask to. */
     static String recordOptionsProblem(Map<String, List<String>> params) {
         if (!params.containsKey("record")) {
-            return params.containsKey("batch") || params.containsKey("turncap") || params.containsKey("tripwire")
-                    ? "-batch, -turncap and -tripwire need -record" : null;
+            return params.containsKey("batch") || params.containsKey("turncap") ? "-batch and -turncap need -record" : null;
         }
         if (params.get("record").size() != 1) {
             return "-record takes one folder";
@@ -360,11 +369,20 @@ public class SimulateMatch {
         if (parseTurnCap(params.get("turncap")) == 0) {
             return "-turncap takes a whole number of turns above zero: " + params.get("turncap");
         }
-        List<String> tripwireValues = params.get("tripwire");
-        if (tripwireValues != null && !(List.of("on").equals(tripwireValues) || List.of("off").equals(tripwireValues))) {
-            return "-tripwire takes on or off: " + tripwireValues;
-        }
         return null;
+    }
+
+    /** Why -tripwire can't be used, or null if it can or wasn't asked for. */
+    static String tripwireOptionProblem(Map<String, List<String>> params) {
+        List<String> values = params.get("tripwire");
+        if (values == null) {
+            return null;
+        }
+        if (!(List.of("on").equals(values) || List.of("off").equals(values))) {
+            return "-tripwire takes on or off: " + values;
+        }
+        // a tournament's players don't go through the seats set up here, so no decision of theirs would be marked
+        return params.containsKey("t") ? "-tripwire cannot be used with -t" : null;
     }
 
     /** Why -honest can't be used, or null if it can or wasn't asked for. It works without -record, on public cards only. */
@@ -380,9 +398,9 @@ public class SimulateMatch {
         return params.containsKey("t") ? "-honest cannot be used with -t" : null;
     }
 
-    /** The tripwire goes with game records, because they are where it reports. Both are off in default play. */
+    /** On for every forge sim run but a tournament, with or without records. Default play outside forge sim has none. */
     static boolean tripwireOn(Map<String, List<String>> params) {
-        return params.containsKey("record") && !List.of("off").equals(params.get("tripwire"));
+        return !params.containsKey("t") && !List.of("off").equals(params.get("tripwire"));
     }
 
     private static boolean isRecordableSeed(List<String> values) {
@@ -433,7 +451,7 @@ public class SimulateMatch {
         System.out.println("\tDIR - Write one game record per game to this folder. Needs -batch, -s and two decks. Not for tournaments.");
         System.out.println("\tID - Batch id for the game records: letters, digits, _ and -.");
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
-        System.out.println("\ttripwire - With -record, catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in the game record and in Tripwire lines before each result.");
+        System.out.println("\ttripwire - Catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in Tripwire lines before each result, and in the game record with -record. Not for tournaments.");
         System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
@@ -457,6 +475,9 @@ public class SimulateMatch {
         }
         g1.AI_SIM_SEARCH = simSearch;
         g1.AI_HONEST_PLAY = honest;
+        if (tripwire) {
+            g1.HIDDEN_READ_WATCH = new HiddenReadWatch();
+        }
         final GameRecorder recorder = recording == null ? null : GameRecorder.attach(g1, recording, 1 + iGame);
         final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
         final long stopsBefore = AITimeoutTracker.budgetStops();
@@ -492,10 +513,10 @@ public class SimulateMatch {
         }
         if (recorder != null) {
             recorder.finish();
-            recorder.tripwireLines().forEach(System.out::println);
-            if (recorder.stoppedAtTurnCap()) {
-                System.out.println(TURN_CAP_LINE);
-            }
+        }
+        GameRecorder.tripwireLines(g1).forEach(System.out::println);
+        if (recorder != null && recorder.stoppedAtTurnCap()) {
+            System.out.println(TURN_CAP_LINE);
         }
 
         List<GameLogEntry> log;

@@ -42,23 +42,29 @@ public class SimulateMatchRecordOptionsTest {
     public void theOtherOptionsNeedRecord() {
         assertRefused(Map.of("batch", List.of("x")), "-record");
         assertRefused(Map.of("turncap", List.of("10")), "-record");
-        assertRefused(Map.of("tripwire", List.of("on")), "-record");
     }
 
     @Test
-    public void theTripwireGoesWithRecords() {
+    public void theTripwireIsOnForSimWithOrWithoutRecords() {
         assertTrue(SimulateMatch.tripwireOn(recordingRun()));
-        assertFalse(SimulateMatch.tripwireOn(Map.of("d", List.of("a.dck", "b.dck"))));
+        assertTrue(SimulateMatch.tripwireOn(Map.of("d", List.of("a.dck", "b.dck"))));
+        assertFalse(SimulateMatch.tripwireOn(Map.of("d", List.of("a.dck", "b.dck"), "tripwire", List.of("off"))));
+    }
+
+    @Test
+    public void aTournamentHasNoTripwire() {
+        assertFalse(SimulateMatch.tripwireOn(Map.of("d", List.of("a.dck", "b.dck"), "t", List.of("Bracket"))));
+        assertTrue(SimulateMatch.tripwireOptionProblem(Map.of("tripwire", List.of("on"), "t", List.of("Bracket"))).contains("-t"));
     }
 
     @Test
     public void theTripwireCanBeSwitched() {
         final Map<String, List<String>> params = recordingRun();
         params.put("tripwire", List.of("off"));
-        assertNull(SimulateMatch.recordOptionsProblem(params));
+        assertNull(SimulateMatch.tripwireOptionProblem(params));
         assertFalse(SimulateMatch.tripwireOn(params));
         params.put("tripwire", List.of("on"));
-        assertNull(SimulateMatch.recordOptionsProblem(params));
+        assertNull(SimulateMatch.tripwireOptionProblem(params));
         assertTrue(SimulateMatch.tripwireOn(params));
     }
 
@@ -74,11 +80,9 @@ public class SimulateMatchRecordOptionsTest {
 
     @Test
     public void tripwireTakesOnOrOff() {
-        final Map<String, List<String>> params = recordingRun();
-        params.put("tripwire", List.of("maybe"));
-        assertRefused(params, "-tripwire");
-        params.put("tripwire", List.of());
-        assertRefused(params, "-tripwire");
+        assertTrue(SimulateMatch.tripwireOptionProblem(Map.of("tripwire", List.of("maybe"))).contains("-tripwire"));
+        assertTrue(SimulateMatch.tripwireOptionProblem(Map.of("tripwire", List.of())).contains("-tripwire"));
+        assertNull(SimulateMatch.tripwireOptionProblem(Map.of("d", List.of("a.dck", "b.dck"))));
     }
 
     @Test
