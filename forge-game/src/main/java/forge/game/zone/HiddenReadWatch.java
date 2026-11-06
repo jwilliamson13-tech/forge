@@ -44,6 +44,8 @@ public final class HiddenReadWatch {
     private static final String AI_PACKAGE = "forge.ai.";
     /** Copying a real game has to read it. Issue 25 owns what a search then sees on the copy. */
     private static final String GAME_COPIER = "forge.ai.simulation.GameCopier";
+    /** Its frames only say a decision is open, so they would crowd out the ones that say which. */
+    private static final String SCOPED_CONTROLLER = "forge.ai.ScopedPlayerControllerAi";
     private static final StackWalker WALKER = StackWalker.getInstance();
     /**
      * Calls that only pass cards along, so the frame above them is the one asking. Anything left out counts as the rules
@@ -130,7 +132,7 @@ public final class HiddenReadWatch {
         signature.add(describe(asker));
         for (int found = 1; found < SIGNATURE_FRAMES && stack.hasNext();) {
             final StackFrame frame = stack.next();
-            if (frame.getClassName().startsWith(AI_PACKAGE)) {
+            if (frame.getClassName().startsWith(AI_PACKAGE) && !frame.getClassName().startsWith(SCOPED_CONTROLLER)) {
                 signature.add(describe(frame));
                 found++;
             }
