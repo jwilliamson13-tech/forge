@@ -114,6 +114,33 @@ public class HiddenReadWatchTest extends AITest {
         assertNoHits();
     }
 
+    /** ChangeZoneAi does this, with the zones a script names, and only asks whether the result is empty. */
+    @Test
+    public void aCountOverSeveralZonesDoesNotFire() {
+        startDeciding();
+        final List<ZoneType> zones = List.of(ZoneType.Hand, ZoneType.Library);
+        assertEquals(3, opp.getCardsIn(zones).size());
+        assertFalse(opp.getCardsIn(zones).isEmpty());
+        assertEquals(3, opp.getCardsIn(ZoneType.Hand, ZoneType.Library).size());
+        assertFalse(opp.getCardsIn(ZoneType.Battlefield, ZoneType.Hand).isEmpty());
+        assertNoHits();
+    }
+
+    @Test
+    public void aLookOverSeveralZonesFires() {
+        startDeciding();
+        final CardCollectionView cards = opp.getCardsIn(List.of(ZoneType.Battlefield, ZoneType.Hand, ZoneType.Library));
+        assertEquals(List.of("Forest", "Fog", "Lightning Bolt", "Island"), cards.stream().map(Card::getName).toList());
+        assertOneHitIn("HiddenReadWatchTest.aLookOverSeveralZonesFires");
+    }
+
+    @Test
+    public void aLookOverPublicZonesDoesNotFire() {
+        startDeciding();
+        assertEquals("Forest", opp.getCardsIn(ZoneType.Graveyard, ZoneType.Battlefield).getFirst().getName());
+        assertNoHits();
+    }
+
     @Test
     public void aCountThenALookIsARead() {
         startDeciding();
@@ -171,11 +198,13 @@ public class HiddenReadWatchTest extends AITest {
     public void wholeGameReadsFire() {
         startDeciding();
         assertFalse(opp.getAllCards().isEmpty());
-        assertEquals(2, watch.hitCount()); // the opponent's hand and library
+        assertNoHits();
+        assertTrue(opp.getAllCards().iterator().hasNext());
+        assertEquals(1, watch.hitCount());
         assertFalse(game.getCardsInGame().isEmpty());
-        assertEquals(4, watch.hitCount());
+        assertEquals("the opponent's hand and library", 3, watch.hitCount());
         assertFalse(game.getCardsIn(ZoneType.Hand).isEmpty());
-        assertEquals(5, watch.hitCount());
+        assertEquals(4, watch.hitCount());
     }
 
     @Test

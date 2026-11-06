@@ -97,6 +97,21 @@ public final class HiddenReadWatch {
         return signature == null ? cards : new RecordingView(cards, reader, signature);
     }
 
+    /** Several zones as one list, which stays a recording view if any of them is. Nothing counts until it is used. */
+    public CardCollectionView combine(final List<CardCollectionView> parts) {
+        final CardCollection all = new CardCollection();
+        RecordingView suspect = null;
+        for (final CardCollectionView part : parts) {
+            if (part instanceof RecordingView view) {
+                suspect = view;
+                all.addAll(view.cards);
+            } else {
+                all.addAll(part);
+            }
+        }
+        return suspect == null ? all : new RecordingView(all, suspect.reader, suspect.signature);
+    }
+
     /** A read straight off the zone, with no collection to hand over, so the use is already known. */
     void directRead(final Zone zone, final CardCollectionView cards) {
         final Player reader = decider();
