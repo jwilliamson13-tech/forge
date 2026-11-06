@@ -579,13 +579,24 @@ public class PlayerControllerAi extends PlayerController {
     public void reveal(CardCollectionView cards, ZoneType zone, Player owner, String messagePrefix, boolean addSuffix) {
         for (Card c : cards) {
             AiCardMemory.rememberCard(player, c, AiCardMemory.MemorySet.REVEALED_CARDS);
+            logReveal(c);
         }
     }
 
     @Override
     public void reveal(List<CardView> cards, ZoneType zone, PlayerView owner, String messagePrefix, boolean addSuffix) {
         for (CardView cv : cards) {
-            AiCardMemory.rememberCard(player, player.getGame().findByView(cv), AiCardMemory.MemorySet.REVEALED_CARDS);
+            Card c = player.getGame().findByView(cv);
+            AiCardMemory.rememberCard(player, c, AiCardMemory.MemorySet.REVEALED_CARDS);
+            logReveal(c);
+        }
+    }
+
+    /** Only forge sim keeps a RevealLog. The memory above is what default play uses. */
+    private void logReveal(Card c) {
+        RevealLog log = player.getGame().REVEAL_LOG;
+        if (log != null && c != null) {
+            log.revealed(player, c);
         }
     }
 

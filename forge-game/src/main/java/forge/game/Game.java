@@ -106,6 +106,9 @@ public class Game {
     // Search changes that stay out of default play (issue 51). Set by forge sim when a seat searches, and copied into
     // simulated games, so that a search scores and retries the same way at every depth.
     public boolean AI_SIM_SEARCH = false;
+    // What each player has been shown of the opponent's hidden cards, for the whole game. Null unless forge sim set it,
+    // so default play has no log at all. Never copied: a reveal in a simulated game didn't happen.
+    public RevealLog REVEAL_LOG = null;
     // Whether heuristic AI players may refine their main phase choices with flat Monte Carlo rollouts.
     // False here on purpose: it is really set by the Match/Preferences (MATCH_AI_FLAT_MONTE_CARLO, default true),
     // and games copied for AI simulation never inherit it, so rollouts cannot recurse into themselves.
