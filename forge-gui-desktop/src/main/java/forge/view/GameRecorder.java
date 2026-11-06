@@ -59,7 +59,7 @@ public final class GameRecorder {
     private final Map<Integer, RecordIds> recordIds = new HashMap<>();
     private int lastTurnSeen = 0;
     private Stop stop = null;
-    private boolean threw = false;
+    private boolean noResult = false;
     private boolean failed = false;
     private boolean closed = false;
 
@@ -133,9 +133,21 @@ public final class GameRecorder {
     public synchronized void stoppedBy(final Stop why) {
         closed = true;
         if (why == Stop.EXCEPTION) {
-            threw = true;
+            noResult = true;
         } else if (stop == null && !(why == Stop.CLOCK && game.isGameOver())) {
             stop = why;
+        }
+    }
+
+    /**
+     * SimulateMatch ends every game with setGameOver, which leaves a game the rules ended alone and names a false winner
+     * on any other. So this comes first. A game still going here with nothing to say why has no result to trust, even if
+     * one player has already lost, and gets no file.
+     */
+    public synchronized void beforeForcedEnd() {
+        closed = true;
+        if (stop == null && !game.isGameOver()) {
+            noResult = true;
         }
     }
 
@@ -143,10 +155,10 @@ public final class GameRecorder {
         return stop == Stop.TURN_CAP;
     }
 
-    /** Writes the file, unless the game threw, the hook failed, or there is nothing to label. */
+    /** Writes the file, unless the game has no result, the hook failed, or there is nothing to label. */
     public synchronized void finish() {
         closed = true;
-        if (threw || failed || lines.isEmpty()) {
+        if (noResult || failed || lines.isEmpty()) {
             return;
         }
         final Path file = settings.folder().resolve(fileName());
@@ -211,7 +223,7 @@ public final class GameRecorder {
         return seats;
     }
 
-    /** Forge's outcome is only asked about a game nothing stopped, because a stopped game's outcome names a false winner. */
+    /** Forge's outcome is only asked about a game the rules ended, because a stopped game's outcome names a false winner. */
     private String endReason() {
         if (stop == Stop.CLOCK) {
             return "draw_clock";

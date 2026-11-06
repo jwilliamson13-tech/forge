@@ -45,6 +45,7 @@ import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.event.GameEventPlayerPriority;
 import forge.game.phase.PhaseType;
+import forge.game.player.GameLossReason;
 import forge.game.player.Player;
 import forge.game.player.PlayerView;
 import forge.game.player.RegisteredPlayer;
@@ -423,6 +424,54 @@ public class GameRecorderTest extends AITest {
         SimulateMatch.simulateSingleMatch(match, 0, false);
 
         assertTrue(files().isEmpty());
+    }
+
+    @Test
+    public void aGameForcedOverWithNoStopReasonWritesNothing() throws IOException {
+        initializeModel();
+        SimulateMatch.setRecording(settings(50));
+        final Match match = spiedMatch();
+        doAnswer(call -> {
+            aPriorityPassOn(call.getArgument(0));
+            return null;
+        }).when(match).startGame(any(Game.class));
+
+        SimulateMatch.simulateSingleMatch(match, 0, false);
+
+        assertTrue("the rules never ended this game, so Forge's winner is false", files().isEmpty());
+    }
+
+    @Test
+    public void aForcedEndAfterOnePlayerLostCarriesNoWinnerEither() throws IOException {
+        initializeModel();
+        SimulateMatch.setRecording(settings(50));
+        final Match match = spiedMatch();
+        doAnswer(call -> {
+            final Game started = call.getArgument(0);
+            aPriorityPassOn(started);
+            started.getRegisteredPlayers().get(1).loseConditionMet(GameLossReason.LifeReachedZero, null);
+            return null;
+        }).when(match).startGame(any(Game.class));
+
+        SimulateMatch.simulateSingleMatch(match, 0, false);
+
+        assertTrue(files().isEmpty());
+    }
+
+    @Test
+    public void aGameTheRulesEndedIsNotAForcedEnd() throws IOException {
+        final GameRecorder recorder = startRecording(50);
+        firePriority();
+        seat2.setLife(0, null);
+        game.getAction().checkStateEffects(true);
+
+        recorder.beforeForcedEnd();
+        game.setGameOver(GameEndReason.Draw);
+        recorder.finish();
+
+        final JsonObject metadata = readFile().get(0);
+        assertEquals("win", metadata.get("end_reason").getAsString());
+        assertEquals(1, metadata.get("winner").getAsInt());
     }
 
     @Test

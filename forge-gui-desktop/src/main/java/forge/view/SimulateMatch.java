@@ -485,6 +485,9 @@ public class SimulateMatch {
             if (sw.isStarted()) {
                 sw.stop();
             }
+            if (recorder != null) {
+                recorder.beforeForcedEnd();
+            }
             g1.setGameOver(GameEndReason.Draw);
         }
         if (recorder != null) {
