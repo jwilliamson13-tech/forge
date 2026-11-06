@@ -11,6 +11,7 @@ import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardCollectionView;
 import forge.game.card.CardLists;
+import forge.game.card.CardPredicates;
 import forge.game.cost.CostSacrifice;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
@@ -51,6 +52,9 @@ public final class NamedDiscard {
      * The nonland cards of the owner's hand that this AI has seen revealed this turn and that are still there.
      */
     static CardCollection knownInHand(final Player ai, final Player owner) {
+        if (HonestPlay.on(ai)) {
+            return CardLists.filter(HonestPlay.rememberedIn(ai, owner, ZoneType.Hand), CardPredicates.NON_LANDS);
+        }
         final CardCollection known = new CardCollection();
         final Set<Card> revealed = AiCardMemory.getMemorySet(ai, AiCardMemory.MemorySet.REVEALED_CARDS);
         if (revealed == null || revealed.isEmpty()) {
@@ -107,7 +111,7 @@ public final class NamedDiscard {
         if (!known.isEmpty()) {
             return bestKnownName(known);
         }
-        CardCollectionView library = target.getCardsIn(ZoneType.Library);
+        CardCollectionView library = HonestPlay.on(ai) ? HonestPlay.knownCards(ai, target) : target.getCardsIn(ZoneType.Library);
         final Card source = sa.getHostCard();
         if (valid != null && !valid.isEmpty() && source != null) {
             library = CardLists.getValidCards(library, valid, source.getController(), source, sa);
@@ -131,7 +135,10 @@ public final class NamedDiscard {
         }
         ComboPlan plan = ComboPlan.EMPTY;
         try {
-            plan = forge.ai.simulation.DeckPlan.forSetting("auto", opp).combos;
+            // a plan for the opponent's deck reads all of it, so honest play guesses from the copies and the cost
+            if (!HonestPlay.on(opp)) {
+                plan = forge.ai.simulation.DeckPlan.forSetting("auto", opp).combos;
+            }
         } catch (final RuntimeException e) {
             // no plan for this deck: the copies and the cost decide
         }
