@@ -1,6 +1,7 @@
 package forge.view;
 
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
@@ -41,6 +42,33 @@ public class SimulateMatchRecordOptionsTest {
     public void theOtherOptionsNeedRecord() {
         assertRefused(Map.of("batch", List.of("x")), "-record");
         assertRefused(Map.of("turncap", List.of("10")), "-record");
+        assertRefused(Map.of("tripwire", List.of("on")), "-record");
+    }
+
+    @Test
+    public void theTripwireGoesWithRecords() {
+        assertTrue(SimulateMatch.tripwireOn(recordingRun()));
+        assertFalse(SimulateMatch.tripwireOn(Map.of("d", List.of("a.dck", "b.dck"))));
+    }
+
+    @Test
+    public void theTripwireCanBeSwitched() {
+        final Map<String, List<String>> params = recordingRun();
+        params.put("tripwire", List.of("off"));
+        assertNull(SimulateMatch.recordOptionsProblem(params));
+        assertFalse(SimulateMatch.tripwireOn(params));
+        params.put("tripwire", List.of("on"));
+        assertNull(SimulateMatch.recordOptionsProblem(params));
+        assertTrue(SimulateMatch.tripwireOn(params));
+    }
+
+    @Test
+    public void tripwireTakesOnOrOff() {
+        final Map<String, List<String>> params = recordingRun();
+        params.put("tripwire", List.of("maybe"));
+        assertRefused(params, "-tripwire");
+        params.put("tripwire", List.of());
+        assertRefused(params, "-tripwire");
     }
 
     @Test

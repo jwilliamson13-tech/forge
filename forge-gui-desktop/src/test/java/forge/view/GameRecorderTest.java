@@ -32,6 +32,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import forge.ai.AITest;
+import forge.ai.ComputerUtil;
 import forge.ai.LobbyPlayerAi;
 import forge.deck.Deck;
 import forge.game.Game;
@@ -58,9 +59,11 @@ public class GameRecorderTest extends AITest {
     private Game game;
     private Player seat1;
     private Player seat2;
+    private boolean tripwire = false;
 
     @BeforeMethod
     public void makeFolder() throws IOException {
+        tripwire = false;
         folder = Files.createTempDirectory("game-record-test");
     }
 
@@ -76,7 +79,7 @@ public class GameRecorderTest extends AITest {
     }
 
     private GameRecorder.Settings settings(final int turnCap) {
-        return new GameRecorder.Settings(folder, "night-1", 42L, turnCap, SEATS);
+        return new GameRecorder.Settings(folder, "night-1", 42L, turnCap, tripwire, SEATS);
     }
 
     /** A two-seat game on turn 1, main phase 1, seat 1 active, with a recorder attached. */
@@ -231,6 +234,52 @@ public class GameRecorderTest extends AITest {
     }
 
     @Test
+    public void aTripwireThatRanReportsItsHits() throws IOException {
+        tripwire = true;
+        final GameRecorder recorder = startRecording(50);
+        addCardToZone("Fog", seat2, ZoneType.Hand);
+        game.HIDDEN_READ_WATCH.enter(seat1);
+        ComputerUtil.hasAFogEffect(seat2, seat1, false);
+        ComputerUtil.hasAFogEffect(seat2, seat1, false);
+        game.HIDDEN_READ_WATCH.exit(seat1);
+        firePriority();
+        endByClock(recorder);
+
+        final JsonObject summary = readFile().get(0).getAsJsonObject("tripwire");
+        assertTrue(summary.get("enabled").getAsBoolean());
+        assertEquals(game.HIDDEN_READ_WATCH.hitCount(), summary.get("hits").getAsInt());
+        assertTrue(summary.get("hits").getAsInt() >= 2);
+        final List<String> signatures = new ArrayList<>();
+        summary.getAsJsonArray("signatures").forEach(signature -> signatures.add(signature.getAsString()));
+        assertEquals(new ArrayList<>(game.HIDDEN_READ_WATCH.hitsBySignature().keySet()), signatures);
+        assertTrue(signatures.toString(), signatures.stream().anyMatch(s -> s.startsWith("forge.ai.ComputerUtil.hasAFogEffect:")));
+        final List<String> printed = recorder.tripwireLines();
+        assertEquals("Tripwire: " + summary.get("hits").getAsInt() + " hits", printed.get(0));
+        assertEquals(1 + signatures.size(), printed.size());
+        assertTrue(printed.get(1), printed.get(1).startsWith("Tripwire hit: ") && printed.get(1).endsWith(" " + signatures.get(0)));
+    }
+
+    @Test
+    public void aTripwireWithNoHitsIsACleanZero() throws IOException {
+        tripwire = true;
+        final GameRecorder recorder = startRecording(50);
+        firePriority();
+        endByClock(recorder);
+
+        final JsonObject summary = readFile().get(0).getAsJsonObject("tripwire");
+        assertTrue(summary.get("enabled").getAsBoolean());
+        assertEquals(0, summary.get("hits").getAsInt());
+        assertEquals(List.of("Tripwire: 0 hits"), recorder.tripwireLines());
+    }
+
+    @Test
+    public void withTheTripwireOffThereIsNoWatchAndNothingToPrint() {
+        final GameRecorder recorder = startRecording(50);
+        assertNull(game.HIDDEN_READ_WATCH);
+        assertTrue(recorder.tripwireLines().isEmpty());
+    }
+
+    @Test
     public void bothPlayersLosingIsADrawByRules() throws IOException {
         final GameRecorder recorder = startRecording(50);
         game.getPhaseHandler().mainLoopStep();
@@ -326,7 +375,7 @@ public class GameRecorderTest extends AITest {
                 new GameRecorder.Seat("GAL_19_18_Burn Red Burn-sligh Generated Deck_27_18", "heuristic", 0),
                 new GameRecorder.Seat("a  b", "heuristic", 0));
         final GameRecorder recorder = GameRecorder.attach(game,
-                new GameRecorder.Settings(folder, "n", 1L, 50, seats), 2);
+                new GameRecorder.Settings(folder, "n", 1L, 50, false, seats), 2);
         game.getPhaseHandler().mainLoopStep();
         endByClock(recorder);
 

@@ -26,6 +26,7 @@ import forge.game.RevealLog;
 import forge.game.event.GameEventPlayerPriority;
 import forge.game.event.GameEventTurnBegan;
 import forge.game.player.Player;
+import forge.game.zone.HiddenReadWatch;
 
 /**
  * Writes one game record, the file described in the Python repo's docs/game-record.md.
@@ -48,7 +49,7 @@ public final class GameRecorder {
     /** A seat's setup, seat 1 first. The AI profile is read from the game, after any defaulting. */
     public record Seat(String deck, String simMode, int searchBudget) { }
 
-    public record Settings(Path folder, String batchId, long seed, int turnCap, List<Seat> seats) { }
+    public record Settings(Path folder, String batchId, long seed, int turnCap, boolean tripwire, List<Seat> seats) { }
 
     private final Game game;
     private final Settings settings;
@@ -71,6 +72,9 @@ public final class GameRecorder {
     public static GameRecorder attach(final Game game, final Settings settings, final int gameNumber) {
         final GameRecorder recorder = new GameRecorder(game, settings, gameNumber);
         game.REVEAL_LOG = new RevealLog(game);
+        if (settings.tripwire()) {
+            game.HIDDEN_READ_WATCH = new HiddenReadWatch();
+        }
         game.subscribeToEvents(recorder);
         return recorder;
     }
@@ -185,7 +189,7 @@ public final class GameRecorder {
         // Karn can send the turn number back to 1, and no snapshot may be past the final turn
         metadata.addProperty("final_turn", Math.max(lastTurnSeen, game.getPhaseHandler().getTurn()));
         metadata.addProperty("end_reason", endReason);
-        metadata.add("tripwire", tripwireOff());
+        metadata.add("tripwire", tripwire());
         return metadata;
     }
 
@@ -226,12 +230,27 @@ public final class GameRecorder {
         throw new IllegalStateException("a won game with no winner");
     }
 
-    /** The tripwire arrives with issue 20. */
-    private static JsonObject tripwireOff() {
+    private JsonObject tripwire() {
+        final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
+        final JsonArray signatures = new JsonArray();
+        if (watch != null) {
+            watch.hitsBySignature().keySet().forEach(signatures::add);
+        }
         final JsonObject tripwire = new JsonObject();
-        tripwire.addProperty("enabled", false);
-        tripwire.addProperty("hits", 0);
-        tripwire.add("signatures", new JsonArray());
+        tripwire.addProperty("enabled", watch != null);
+        tripwire.addProperty("hits", watch == null ? 0 : watch.hitCount());
+        tripwire.add("signatures", signatures);
         return tripwire;
+    }
+
+    /** The game's tripwire result for stdout, which also covers a game that gets no file. Empty with the tripwire off. */
+    public List<String> tripwireLines() {
+        final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
+        final List<String> printed = new ArrayList<>();
+        if (watch != null) {
+            printed.add("Tripwire: " + watch.hitCount() + " hits");
+            watch.hitsBySignature().forEach((signature, hits) -> printed.add("Tripwire hit: " + hits + " " + signature));
+        }
+        return printed;
     }
 }

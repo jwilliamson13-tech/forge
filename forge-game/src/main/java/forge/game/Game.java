@@ -109,6 +109,9 @@ public class Game {
     // What each player has been shown of the opponent's hidden cards, for the whole game. Null unless forge sim set it,
     // so default play has no log at all. Never copied: a reveal in a simulated game didn't happen.
     public RevealLog REVEAL_LOG = null;
+    // The hidden-information tripwire. Null unless forge sim set it, so default play pays one null check per zone read.
+    // Never copied: reads on a copy the AI searches on see the copy, and copying the real game is issue 25's concern.
+    public HiddenReadWatch HIDDEN_READ_WATCH = null;
     // Whether heuristic AI players may refine their main phase choices with flat Monte Carlo rollouts.
     // False here on purpose: it is really set by the Match/Preferences (MATCH_AI_FLAT_MONTE_CARLO, default true),
     // and games copied for AI simulation never inherit it, so rollouts cannot recurse into themselves.

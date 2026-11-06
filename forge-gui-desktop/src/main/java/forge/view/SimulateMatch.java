@@ -11,6 +11,7 @@ import org.apache.commons.lang3.time.StopWatch;
 import forge.LobbyPlayer;
 import forge.ai.AIOption;
 import forge.ai.AiProfileUtil;
+import forge.ai.LobbyPlayerAi;
 import forge.ai.simulation.FlatMonteCarloStats;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
@@ -61,6 +62,8 @@ public class SimulateMatch {
     private static boolean simSearch = false;
     /** Set by -record: what to write game records with, or null to write none. */
     private static GameRecorder.Settings recording = null;
+    /** True with -record unless -tripwire off says otherwise. Without records there is nowhere to report a hit. */
+    private static boolean tripwire = false;
 
     static void setRecording(final GameRecorder.Settings settings) {
         recording = settings;
@@ -157,6 +160,8 @@ public class SimulateMatch {
             return;
         }
 
+        tripwire = tripwireOn(params);
+
         Long seed = null;
         if (params.containsKey("s")) {
             seed = Long.parseLong(params.get("s").get(0));
@@ -252,7 +257,9 @@ public class SimulateMatch {
                 // so that a seed still replays the same games.
                 int sleeveCount = GuiBase.getInterface().getSleevesCount();
                 int sleeveIndex = sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount);
-                rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile));
+                LobbyPlayer player = GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile);
+                ((LobbyPlayerAi) player).setScopedDecisions(tripwire);
+                rp.setPlayer(player);
                 pp.add(rp);
                 // the budget is one value for the run, and a heuristic seat has no search to spend it on
                 seats.add(new GameRecorder.Seat(d.getName(), simMode, SIM_MODE_HEURISTIC.equals(simMode) ? 0 : searchBudget));
@@ -266,7 +273,7 @@ public class SimulateMatch {
 
         if (params.containsKey("record")) {
             recording = new GameRecorder.Settings(Path.of(params.get("record").get(0)), params.get("batch").get(0), seed,
-                    parseTurnCap(params.get("turncap")), seats);
+                    parseTurnCap(params.get("turncap")), tripwire, seats);
         }
 
         sb.append(" - ").append(Lang.nounWithNumeral(nGames, "game")).append(" of ").append(type);
@@ -320,7 +327,8 @@ public class SimulateMatch {
     /** Why these options can't write game records, or null if they can or don't ask to. */
     static String recordOptionsProblem(Map<String, List<String>> params) {
         if (!params.containsKey("record")) {
-            return params.containsKey("batch") || params.containsKey("turncap") ? "-batch and -turncap need -record" : null;
+            return params.containsKey("batch") || params.containsKey("turncap") || params.containsKey("tripwire")
+                    ? "-batch, -turncap and -tripwire need -record" : null;
         }
         if (params.get("record").size() != 1) {
             return "-record takes one folder";
@@ -343,7 +351,16 @@ public class SimulateMatch {
         if (parseTurnCap(params.get("turncap")) == 0) {
             return "-turncap takes a whole number of turns above zero: " + params.get("turncap");
         }
+        List<String> tripwireValues = params.get("tripwire");
+        if (tripwireValues != null && !(List.of("on").equals(tripwireValues) || List.of("off").equals(tripwireValues))) {
+            return "-tripwire takes on or off: " + tripwireValues;
+        }
         return null;
+    }
+
+    /** The tripwire goes with game records, because they are where it reports. Both are off in default play. */
+    static boolean tripwireOn(Map<String, List<String>> params) {
+        return params.containsKey("record") && !List.of("off").equals(params.get("tripwire"));
     }
 
     private static boolean isRecordableSeed(List<String> values) {
@@ -377,7 +394,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -394,6 +411,7 @@ public class SimulateMatch {
         System.out.println("\tDIR - Write one game record per game to this folder. Needs -batch, -s and two decks. Not for tournaments.");
         System.out.println("\tID - Batch id for the game records: letters, digits, _ and -.");
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
+        System.out.println("\ttripwire - With -record, catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in the game record and in Tripwire lines before each result.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
@@ -447,6 +465,7 @@ public class SimulateMatch {
         }
         if (recorder != null) {
             recorder.finish();
+            recorder.tripwireLines().forEach(System.out::println);
             if (recorder.stoppedAtTurnCap()) {
                 System.out.println(TURN_CAP_LINE);
             }
