@@ -7,6 +7,8 @@ import forge.game.RevealLog;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardCollectionView;
+import forge.game.card.CardLists;
+import forge.game.card.CardPredicates;
 import forge.game.player.Player;
 import forge.game.zone.ZoneType;
 
@@ -70,6 +72,16 @@ public final class HonestPlay {
         }
         cards.addAll(remembered(viewer, owner));
         return cards;
+    }
+
+    /**
+     * The cards to pick a name from for a guess at {@code owner}'s deck. The most copies seen wins such a guess, and
+     * lands in play would win every time, so a person's guess goes to the spells unless there are none.
+     */
+    public static CardCollection namesWorthGuessing(final Player viewer, final Player owner) {
+        final CardCollection known = knownCards(viewer, owner);
+        final CardCollection spells = CardLists.filter(known, CardPredicates.NON_LANDS);
+        return spells.isEmpty() ? known : spells;
     }
 
     /** {@link #knownCards} for every opponent of {@code viewer}. */

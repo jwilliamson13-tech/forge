@@ -1751,7 +1751,8 @@ public class PlayerControllerAi extends PlayerController {
     public String chooseCardName(SpellAbility sa, Predicate<ICardFace> cpp, String valid, String message) {
         if (sa.hasParam("AILogic")) {
             CardCollectionView aiLibrary = player.getCardsIn(ZoneType.Library);
-            CardCollectionView oppLibrary = player.getStrongestOpponent().getCardsIn(ZoneType.Library);
+            CardCollectionView oppLibrary = HonestPlay.on(player) ? HonestPlay.namesWorthGuessing(player, player.getStrongestOpponent())
+                    : player.getStrongestOpponent().getCardsIn(ZoneType.Library);
             final Card source = sa.getHostCard();
             final String logic = sa.getParam("AILogic");
 
@@ -1805,7 +1806,8 @@ public class PlayerControllerAi extends PlayerController {
                 return name;
             }
         } else {
-            CardCollectionView list = CardLists.filterControlledBy(getGame().getCardsInGame(), player.getOpponents());
+            CardCollectionView list = HonestPlay.on(player) ? HonestPlay.knownOpponentCards(player)
+                    : CardLists.filterControlledBy(getGame().getCardsInGame(), player.getOpponents());
             list = CardLists.filter(list, CardPredicates.NON_LANDS);
             if (!list.isEmpty()) {
                 return list.get(0).getName();
