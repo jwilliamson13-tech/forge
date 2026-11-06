@@ -1149,7 +1149,7 @@ public class ComputerUtilCard {
             } else if (logic.equals("MostProminentInComputerDeck")) {
                 chosen.add(getMostProminentColor(cardsOf(ai, ai), colorChoices));
             } else if (logic.equals("MostProminentDualInComputerDeck")) {
-                List<String> prominence = getColorByProminence(cardsOf(ai, ai));
+                List<String> prominence = getColorByProminence(new CardCollection(cardsOf(ai, ai)));
                 chosen.add(prominence.get(0));
                 chosen.add(prominence.get(1));
             } else if (logic.equals("MostProminentInGame")) {
@@ -1171,7 +1171,7 @@ public class ComputerUtilCard {
             } else if (logic.equals("MostProminentInActivePlayerHand")) {
                 chosen.add(getMostProminentColor(HonestPlay.handAsKnown(game.getPhaseHandler().getPlayerTurn()), colorChoices));
             } else if (logic.equals("MostProminentInComputerDeckButGreen")) {
-                List<String> prominence = getColorByProminence(cardsOf(ai, ai));
+                List<String> prominence = getColorByProminence(new CardCollection(cardsOf(ai, ai)));
                 if (prominence.get(0).equals(MagicColor.Constant.GREEN)) {
                     chosen.add(prominence.get(1));
                 } else {
