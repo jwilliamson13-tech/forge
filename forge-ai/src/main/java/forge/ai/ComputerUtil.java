@@ -2365,7 +2365,8 @@ public class ComputerUtil {
     public static CardCollection getCardsToDiscardFromOpponent(Player chooser, Player discarder, SpellAbility sa, CardCollection validCards, int min, int max) {
         // Focus on keycards
         boolean foundKeycard = false;
-        List<String> keyCards = discarder.getRegisteredPlayer().getDeck().getKeyCards();
+        // the opponent's key cards are a line in their deck list
+        List<String> keyCards = HonestPlay.on(chooser) ? List.of() : discarder.getRegisteredPlayer().getDeck().getKeyCards();
         CardCollection goodChoices = CardLists.filter(validCards, c -> keyCards.contains(c.getName()) && !c.hasSVar("DiscardMeByOpp") && !c.hasSVar("DiscardMe"));
         if (goodChoices.isEmpty()) {
             goodChoices = CardLists.filter(validCards, c -> !c.hasSVar("DiscardMeByOpp") && !c.hasSVar("DiscardMe"));
@@ -2386,7 +2387,7 @@ public class ComputerUtil {
                 return new CardCollection(goodChoices.getFirst());
             }
 
-            Card nearTermThreat = getBestNearTermDiscardThreat(discarder, goodChoices);
+            Card nearTermThreat = getBestNearTermDiscardThreat(discarder, validCards, goodChoices);
             if (nearTermThreat != null) {
                 return new CardCollection(nearTermThreat);
             }
@@ -2450,9 +2451,12 @@ public class ComputerUtil {
         return goodChoices.subList(0, max);
     }
 
-    private static Card getBestNearTermDiscardThreat(Player discarder, CardCollection goodChoices) {
+    private static Card getBestNearTermDiscardThreat(Player discarder, CardCollection shown, CardCollection goodChoices) {
         int manaSources = ComputerUtilMana.getAvailableManaEstimate(discarder, false);
-        if (CardLists.count(discarder.getCardsIn(ZoneType.Hand), CardPredicates.LANDS_PRODUCING_MANA) > 0) {
+        // the rules showed the chooser these. Duress and the like reveal the rest first, which is on the notepad
+        final CardCollection hand = new CardCollection(HonestPlay.handAsKnown(discarder));
+        hand.addAll(shown);
+        if (CardLists.count(hand, CardPredicates.LANDS_PRODUCING_MANA) > 0) {
             manaSources++;
         }
 
