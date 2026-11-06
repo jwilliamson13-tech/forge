@@ -417,6 +417,7 @@ public class SnapshotLineTest extends AITest {
         assertEquals(2, card.get("power").getAsInt());
         assertEquals(2, card.get("controller").getAsInt());
         assertTrue("the owner has nothing on the log", zone(from(seat2), "opp_revealed").isEmpty());
+        assertTrue("an id would tie it to the card it becomes", isNull(card, "id"));
     }
 
     @Test
@@ -431,10 +432,24 @@ public class SnapshotLineTest extends AITest {
 
         final JsonObject card = logged(from(seat1), "Grizzly Bears");
         assertEquals("Grizzly Bears", card.get("name").getAsString());
+        assertTrue("nor can an id tie them", isNull(card, "id"));
         assertFalse("tapped would tie it to the face-down card", card.get("tapped").getAsBoolean());
         assertEquals(0, card.getAsJsonObject("counters").size());
         assertFalse(card.get("face_down").getAsBoolean());
         assertEquals(2, card.get("power").getAsInt());
+    }
+
+    @Test
+    public void theLogIsWrittenByNameAndNotInDeckOrder() {
+        setUp();
+        final Card first = addCardToZone("Runeclaw Bear", seat2, ZoneType.Hand);
+        final Card second = addCardToZone("Grizzly Bears", seat2, ZoneType.Hand);
+        game.getAction().reveal(new CardCollection(List.of(first, second)), seat2);
+
+        final JsonArray log = zone(from(seat1), "opp_revealed");
+
+        assertEquals("Grizzly Bears", log.get(0).getAsJsonObject().get("name").getAsString());
+        assertEquals("Runeclaw Bear", log.get(1).getAsJsonObject().get("name").getAsString());
     }
 
     private SpellAbility onStack(final Card card, final Player controller, final Object... targets) {

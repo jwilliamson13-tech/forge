@@ -178,14 +178,17 @@ final class SnapshotLine {
     }
 
     /**
-     * A logged card is written as it was noted down, with no live state. A live read would tie it to the card it became,
-     * such as the tapped face-down creature it was played as.
+     * A logged card is written as it was noted down, with no id and no live state. Either one would tie it to the card it
+     * became, such as the tapped face-down creature it was played as. The log comes in Forge's id order, which is deck
+     * order, so the lines go by name instead.
      */
     private JsonArray revealed() {
         final JsonArray list = new JsonArray();
-        for (final RevealLog.Entry entry : game.REVEAL_LOG.knownTo(me)) {
+        final List<RevealLog.Entry> entries = new ArrayList<>(game.REVEAL_LOG.knownTo(me));
+        entries.sort(Comparator.comparing(RevealLog.Entry::name).thenComparing(RevealLog.Entry::face));
+        for (final RevealLog.Entry entry : entries) {
             final JsonObject out = new JsonObject();
-            out.addProperty("id", entry.id());
+            out.addProperty("id", (Integer) null);
             out.addProperty("name", entry.name());
             out.addProperty("face", entry.face().name());
             out.addProperty("power", entry.power());
