@@ -48,12 +48,21 @@ public class SimulateMatch {
     private static final String SIM_MODE_HYBRID = "hybrid";
     private static final String SIM_MODE_FULL = "full";
 
+    /** The turn cap's counterpart of the clock's line. The sim-runner reads it to tell the two kinds of draw apart. */
+    private static final String TURN_CAP_LINE = "Stopping game at the turn cap as draw";
+
     /** Set by -budget: search steps per AI decision, or 0 to leave the wall-clock limit in charge. */
     private static int searchBudget = 0;
     /** True with -sim or -budget. Without them the output stays what stock Forge prints. */
     private static boolean printAiLimits = false;
     /** True when -sim gives a seat a mode that searches. Only then do the search changes of Game.AI_SIM_SEARCH apply. */
     private static boolean simSearch = false;
+    /** Set by -record: what to write game records with, or null to write none. */
+    private static GameRecorder.Settings recording = null;
+
+    static void setRecording(final GameRecorder.Settings settings) {
+        recording = settings;
+    }
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
@@ -338,6 +347,7 @@ public class SimulateMatch {
             g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
         }
         g1.AI_SIM_SEARCH = simSearch;
+        final GameRecorder recorder = recording == null ? null : GameRecorder.attach(g1, recording, 1 + iGame);
         final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
         final long stopsBefore = AITimeoutTracker.budgetStops();
         final long drawsBefore = MyRandom.callCount();
@@ -353,13 +363,25 @@ public class SimulateMatch {
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             System.out.println("Stopping slow match as draw");
+            if (recorder != null) {
+                recorder.stoppedBy(GameRecorder.Stop.CLOCK);
+            }
         } catch (Exception | StackOverflowError e) {
             e.printStackTrace();
+            if (recorder != null) {
+                recorder.stoppedBy(GameRecorder.Stop.EXCEPTION);
+            }
         } finally {
             if (sw.isStarted()) {
                 sw.stop();
             }
             g1.setGameOver(GameEndReason.Draw);
+        }
+        if (recorder != null) {
+            recorder.finish();
+            if (recorder.stoppedAtTurnCap()) {
+                System.out.println(TURN_CAP_LINE);
+            }
         }
 
         List<GameLogEntry> log;
