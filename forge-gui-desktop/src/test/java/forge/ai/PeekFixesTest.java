@@ -511,6 +511,16 @@ public class PeekFixesTest extends AITest {
     }
 
     @Test
+    public void predictingABlockTreatsTheirMorphAsAMorph() {
+        startGame(true);
+        final Card morph = morph(opp);
+        assertFalse(HonestPlay.deciderCanNameIt(morph));
+        watch.enter(opp);
+        assertTrue("the one who controls it knows it", HonestPlay.deciderCanNameIt(morph));
+        watch.exit(opp);
+    }
+
+    @Test
     public void aFaceDownOpposingCardIsNotOneTheAiCanName() {
         startGame(true);
         final Card morph = morph(opp);

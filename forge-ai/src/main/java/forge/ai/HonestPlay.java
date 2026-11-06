@@ -170,6 +170,13 @@ public final class HonestPlay {
         return CardCollection.combine(viewer.getAllCards(), knownOpponentCards(viewer));
     }
 
+    /** False under honest play if whoever is deciding isn't allowed to turn this face-down card over. */
+    public static boolean deciderCanNameIt(final Card c) {
+        final Game game = c.getGame();
+        final Player decider = game.AI_DECIDERS.current();
+        return !on(game) || decider == null || canNameIt(decider, c);
+    }
+
     /** False for a face-down card this viewer isn't allowed to turn over. */
     public static boolean canNameIt(final Player viewer, final Card c) {
         return !c.isFaceDown() || c.getView().canFaceDownBeShownTo(viewer.getView());
