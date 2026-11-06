@@ -978,7 +978,7 @@ public class ComputerUtilMana {
         }
 
         int handColors = 0;
-        for (final Card c : ai.getCardsIn(ZoneType.Hand)) {
+        for (final Card c : HonestPlay.handAsKnown(ai)) {
             if (c != sa.getHostCard()) {
                 handColors |= c.getColor().getColor();
             }
@@ -1181,7 +1181,7 @@ public class ComputerUtilMana {
                 }
             }
             // check if combo mana can produce most common color in hand
-            String commonColor = ComputerUtilCard.getMostProminentColor(ai.getCardsIn(ZoneType.Hand));
+            String commonColor = ComputerUtilCard.getMostProminentColor(HonestPlay.handAsKnown(ai));
             if (!commonColor.isEmpty() && satisfiesColorChoice(comboMana, choiceString, MagicColor.toShortString(commonColor)) && comboMana.getComboColors(manaAb).contains(MagicColor.toShortString(commonColor))) {
                 choice = MagicColor.toShortString(commonColor);
             } else {
