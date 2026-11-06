@@ -392,6 +392,9 @@ public class SpecialCardAi {
         }
 
         public static String chooseCardViaKeyCard(final Player ai, final SpellAbility sa) {
+            if (HonestPlay.on(ai)) {
+                return null; // the opponent's key cards are a line in their deck list
+            }
             boolean skipManaAbilities = sa.getParam("AILogic").equals("PithingNeedle");
             boolean skipLands = sa.getParam("AILogic").equals("PhyrexianRevoker");
             boolean knowHand = sa.getParam("AILogic").equals("SorcerousSpyglass");
@@ -456,9 +459,11 @@ public class SpecialCardAi {
             boolean skipManaAbilities = sa.getParam("AILogic").equals("PithingNeedle");
             boolean skipLands = sa.getParam("AILogic").equals("PhyrexianRevoker");
             boolean knowHand = sa.getParam("AILogic").equals("SorcerousSpyglass");
+            final boolean honest = HonestPlay.on(ai);
 
             for (Player opp : ai.getOpponents()) {
-                for (Card c : opp.getAllCards()) {
+                final CardCollectionView seenInHand = honest ? HonestPlay.rememberedIn(ai, opp, ZoneType.Hand) : CardCollection.EMPTY;
+                for (Card c : honest ? HonestPlay.knownCards(ai, opp) : opp.getAllCards()) {
                     if (skipLands && c.isLand()) {
                         continue;
                     }
@@ -471,7 +476,7 @@ public class SpecialCardAi {
                     }
 
                     score += c.isInZone(ZoneType.Battlefield) ? 10 : 0;
-                    if (knowHand && c.isInZone(ZoneType.Hand)) {
+                    if (knowHand && (honest ? seenInHand.contains(c) : c.isInZone(ZoneType.Hand))) {
                         score += 5;
                     }
 
