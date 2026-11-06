@@ -644,6 +644,14 @@ public class PlayerControllerAi extends PlayerController {
         return ImmutablePair.of(toTop, toGraveyard);
     }
 
+    /** Every card in the game, or under honest play every card of the AI's own and what it knows of the opponents'. */
+    private CardCollectionView cardsToLookThrough() {
+        if (!HonestPlay.on(player)) {
+            return getGame().getCardsInGame();
+        }
+        return CardCollection.combine(player.getAllCards(), HonestPlay.knownOpponentCards(player));
+    }
+
     @Override
     public boolean willPutCardOnTop(Card c) {
         // This is used for Clash. Currently uses Scry logic to determine whether the card should be put on top.
@@ -662,7 +670,7 @@ public class PlayerControllerAi extends PlayerController {
 
         if (destinationZone == ZoneType.Graveyard) {
             // In presence of Volrath's Shapeshifter in deck, try to place the best creature on top of the graveyard
-            if (getGame().getCardsInGame().anyMatch(card -> {
+            if (cardsToLookThrough().anyMatch(card -> {
                 // need a custom predicate here since Volrath's Shapeshifter may have a different name OTB
                 return card.getOriginalState(CardStateName.Original).getName().equals("Volrath's Shapeshifter");
             })) {
