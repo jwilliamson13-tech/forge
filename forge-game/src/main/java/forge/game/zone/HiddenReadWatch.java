@@ -19,7 +19,8 @@ import forge.game.card.CardCollectionView;
 import forge.game.player.Player;
 
 /**
- * The hidden-information tripwire: catches forge-ai reading a hand or library that isn't the deciding player's.
+ * The hidden-information tripwire: catches forge-ai reading a hand or library that isn't the deciding player's, or the
+ * real side of a face-down card that player may not see.
  * <p>
  * Only forge sim makes one, so {@link Game#HIDDEN_READ_WATCH} is null in default play, and in the copies the AI searches
  * on, which is why reads on a copy never count. {@code ScopedPlayerControllerAi} says who is deciding through
@@ -37,6 +38,8 @@ import forge.game.player.Player;
 public final class HiddenReadWatch {
     /** Starts a signature whose read had no decider open. */
     public static final String NO_DECIDER = "no decider: ";
+    /** Starts a signature of a read of what a face-down card really is, wherever the card lies. */
+    public static final String FACE_DOWN = "face-down: ";
 
     private static final int SIGNATURE_FRAMES = 3;
     private static final String AI_PACKAGE = "forge.ai.";
@@ -56,7 +59,9 @@ public final class HiddenReadWatch {
             "forge.game.player.Player.getCardsIn", "forge.game.player.Player.getAllCards",
             "forge.game.player.PlayerCollection.getCardsIn",
             "forge.game.Game.getCardsIn", "forge.game.Game.getCardsIncludePhasingIn",
-            "forge.game.Game.getCardsInOwnedBy", "forge.game.Game.getCardsInGame");
+            "forge.game.Game.getCardsInOwnedBy", "forge.game.Game.getCardsInGame",
+            "forge.game.card.Card.getState", "forge.game.card.Card.getOriginalState", "forge.game.card.Card.getPaperCard",
+            "forge.game.card.Card.getRules", "forge.game.card.Card.noteFaceDownRead");
 
     private final Map<String, Integer> hits = new TreeMap<>();
 
@@ -110,6 +115,18 @@ public final class HiddenReadWatch {
         final String signature = suspect(zone, reader);
         if (signature != null) {
             countRead(cards, reader, signature);
+        }
+    }
+
+    /** Something asked for {@code card}'s real side while it is face down. Only forge-ai's own question can count. */
+    public void faceDownRead(final Card card) {
+        final Player reader = card.getGame().AI_DECIDERS.current();
+        if (reader != null && card.getView().canFaceDownBeShownTo(reader.getView())) {
+            return;
+        }
+        final String signature = WALKER.walk(HiddenReadWatch::aiSignature);
+        if (signature != null) {
+            hit(FACE_DOWN + (reader == null ? NO_DECIDER : "") + signature);
         }
     }
 

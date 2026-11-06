@@ -524,11 +524,19 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         if (state == CardStateName.FaceDown) {
             return getFaceDownState();
         }
+        noteFaceDownRead();
         CardCloneStates clStates = getLastClonedState();
         if (clStates == null) {
-            return getOriginalState(state);
+            return originalState(state);
         }
         return clStates.get(state);
+    }
+
+    /** The tripwire's check on reads of what a face-down card really is. It has no effect outside forge sim. */
+    private void noteFaceDownRead() {
+        if (isFaceDown() && game != null && game.HIDDEN_READ_WATCH != null) {
+            game.HIDDEN_READ_WATCH.faceDownRead(this);
+        }
     }
 
     public boolean hasState(final CardStateName state) {
@@ -543,6 +551,13 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public CardState getOriginalState(final CardStateName state) {
+        if (state != CardStateName.FaceDown) {
+            noteFaceDownRead();
+        }
+        return originalState(state);
+    }
+
+    private CardState originalState(final CardStateName state) {
         if (state == CardStateName.FaceDown) {
             return getFaceDownState();
         }
@@ -7653,6 +7668,7 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     }
 
     public IPaperCard getPaperCard() {
+        noteFaceDownRead();
         IPaperCard cp = paperCard;
         if (cp != null) {
             return cp;

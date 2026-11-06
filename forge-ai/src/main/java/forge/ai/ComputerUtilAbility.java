@@ -59,7 +59,8 @@ public class ComputerUtilAbility {
             landsNotInHand.add(player.getCardsIn(ZoneType.Library).get(0));
         }
         for (final Card crd : landsNotInHand) {
-            if (!(crd.hasPlayableLandFace() || (crd.isFaceDown() && crd.getState(CardStateName.Original).getType().isLand()))) {
+            final boolean hiddenFromHonestPlayer = HonestPlay.on(game) && !HonestPlay.canNameIt(player, crd);
+            if (!(crd.hasPlayableLandFace() || (crd.isFaceDown() && !hiddenFromHonestPlayer && crd.getState(CardStateName.Original).getType().isLand()))) {
                 continue;
             }
             if (!crd.mayPlay(player).isEmpty()) {
