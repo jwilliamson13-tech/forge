@@ -200,6 +200,7 @@ public final class GameRecorder {
         // Karn can send the turn number back to 1, and no snapshot may be past the final turn
         metadata.addProperty("final_turn", Math.max(lastTurnSeen, game.getPhaseHandler().getTurn()));
         metadata.addProperty("end_reason", endReason);
+        metadata.addProperty("honest_play", game.AI_HONEST_PLAY);
         metadata.add("tripwire", tripwire());
         return metadata;
     }

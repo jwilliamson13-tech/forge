@@ -241,6 +241,25 @@ public class GameRecorderTest extends AITest {
     }
 
     @Test
+    public void theMetadataSaysWhetherTheAiPlayedHonestly() throws IOException {
+        final GameRecorder recorder = startRecording(50);
+        game.AI_HONEST_PLAY = true;
+        firePriority();
+        endByClock(recorder);
+
+        assertTrue(readFile().get(0).get("honest_play").getAsBoolean());
+    }
+
+    @Test
+    public void aGameWithoutHonestPlaySaysSoToo() throws IOException {
+        final GameRecorder recorder = startRecording(50);
+        firePriority();
+        endByClock(recorder);
+
+        assertFalse(readFile().get(0).get("honest_play").getAsBoolean());
+    }
+
+    @Test
     public void aTripwireThatRanReportsItsHits() throws IOException {
         tripwire = true;
         final GameRecorder recorder = startRecording(50);
