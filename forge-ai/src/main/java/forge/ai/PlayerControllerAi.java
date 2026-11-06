@@ -649,7 +649,7 @@ public class PlayerControllerAi extends PlayerController {
         if (!HonestPlay.on(player)) {
             return getGame().getCardsInGame();
         }
-        return CardCollection.combine(player.getAllCards(), HonestPlay.knownOpponentCards(player));
+        return HonestPlay.allCardsKnownTo(player);
     }
 
     @Override

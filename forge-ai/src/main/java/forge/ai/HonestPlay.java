@@ -108,6 +108,68 @@ public final class HonestPlay {
         return cards;
     }
 
+    /**
+     * What {@code viewer} can see of {@code owner}'s {@code zones}: all of a public zone or one of the viewer's own, and
+     * of an opponent's hidden zone only what was last seen there. Outside honest play it is the whole of each zone.
+     */
+    public static CardCollectionView seenIn(final Player viewer, final Player owner, final Iterable<ZoneType> zones) {
+        if (!on(viewer) || owner.equals(viewer)) {
+            return owner.getCardsIn(zones);
+        }
+        final CardCollection cards = new CardCollection();
+        for (final ZoneType zone : zones) {
+            if (zone.isHidden()) {
+                cards.addAll(rememberedIn(viewer, owner, zone));
+            } else {
+                cards.addAll(owner.getCardsIn(zone));
+            }
+        }
+        return cards;
+    }
+
+    /** {@code Game.getCardsIn}, for the seats' zones the viewer can see. */
+    public static CardCollectionView seenInAnySeat(final Player viewer, final Iterable<ZoneType> zones) {
+        final Game game = viewer.getGame();
+        if (!on(game)) {
+            return game.getCardsIn(zones);
+        }
+        final CardCollection cards = new CardCollection();
+        for (final Player p : game.getPlayers()) {
+            cards.addAll(seenIn(viewer, p, zones));
+        }
+        return cards;
+    }
+
+    /** {@link #seenIn} over every opponent of {@code viewer}. */
+    public static CardCollectionView seenInOpponents(final Player viewer, final ZoneType zone) {
+        if (!on(viewer)) {
+            return viewer.getOpponents().getCardsIn(zone);
+        }
+        final CardCollection cards = new CardCollection();
+        for (final Player opp : viewer.getOpponents()) {
+            cards.addAll(seenIn(viewer, opp, List.of(zone)));
+        }
+        return cards;
+    }
+
+    /** True if {@code owner} has cards in {@code zones} that {@code viewer} can't see, so a list of what it can see may be short. */
+    public static boolean holdsUnseen(final Player viewer, final Player owner, final Iterable<ZoneType> zones) {
+        if (!on(viewer) || owner.equals(viewer)) {
+            return false;
+        }
+        for (final ZoneType zone : zones) {
+            if (zone.isHidden() && !owner.getZone(zone).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Every card {@code viewer} can name, own and opposing. For a question about the whole game. */
+    public static CardCollectionView allCardsKnownTo(final Player viewer) {
+        return CardCollection.combine(viewer.getAllCards(), knownOpponentCards(viewer));
+    }
+
     /** False for a face-down card this viewer isn't allowed to turn over. */
     public static boolean canNameIt(final Player viewer, final Card c) {
         return !c.isFaceDown() || c.getView().canFaceDownBeShownTo(viewer.getView());

@@ -115,7 +115,7 @@ public class ChangeZoneAi extends SpellAbilityAi {
             } else if (sa.hasParam("TgtZone")) {
                 origin.addAll(ZoneType.listValueOf(sa.getParam("TgtZone")));
             }
-            CardCollection list = CardLists.getValidCards(ai.getGame().getCardsIn(origin),
+            CardCollection list = CardLists.getValidCards(HonestPlay.seenInAnySeat(ai, origin),
                     sa.getTargetRestrictions().getValidTgts(), ai, sa.getHostCard(), sa);
 
             final List<String> creatureTypes = Lists.newArrayList();
@@ -335,10 +335,12 @@ public class ChangeZoneAi extends SpellAbilityAi {
         }
 
         for (final Player p : pDefined) {
-            CardCollectionView list = p.getCardsIn(origin);
+            CardCollectionView list = HonestPlay.seenIn(ai, p, origin);
+            // an opponent's unseen hand or library isn't empty just because nothing in it has been seen
+            final boolean holdsUnseen = HonestPlay.holdsUnseen(ai, p, origin);
 
             // remove cards that won't be seen if library can't be searched
-            if (origin.contains(ZoneType.Library)) {
+            if (origin.contains(ZoneType.Library) && !holdsUnseen) {
                 CardCollectionView searchable = ai.getSearchableLibrary(sa, p);
                 list = CardLists.filter(list, c -> !c.isInZone(ZoneType.Library) || (searchable != null && searchable.contains(c)));
             }
@@ -361,7 +363,7 @@ public class ChangeZoneAi extends SpellAbilityAi {
 
             if (!activateForCost &&
                     (p == ai || !canIgnoreEmptyDefinedPlayers(ai, sa, origin, destination, pDefined)) &&
-                    (list.isEmpty() || ("Battlefield".equals(destination) && Iterables.any(list, card -> ComputerUtil.isETBprevented(card))))) {
+                    ((list.isEmpty() && !holdsUnseen) || ("Battlefield".equals(destination) && Iterables.any(list, card -> ComputerUtil.isETBprevented(card))))) {
                 return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
 
@@ -893,7 +895,7 @@ public class ChangeZoneAi extends SpellAbilityAi {
         if ("X".equals(sa.getTargetRestrictions().getMinTargets()) && sa.getSVar("X").equals("Count$xPaid")) {
             ComputerUtilCost.setMaxXValue(sa, ai, sa.isTrigger());
         }
-        CardCollection list = CardLists.getTargetableCards(game.getCardsIn(origin), sa);
+        CardCollection list = CardLists.getTargetableCards(HonestPlay.seenInAnySeat(ai, origin), sa);
 
         list = ComputerUtil.filterAITgts(sa, ai, list, true);
 
