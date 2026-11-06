@@ -56,6 +56,7 @@ public final class GameRecorder {
     private final int gameNumber;
     private final List<String> lines = new ArrayList<>();
     private final Map<Integer, String> lastLine = new HashMap<>();
+    private final Map<Integer, RecordIds> recordIds = new HashMap<>();
     private int lastTurnSeen = 0;
     private Stop stop = null;
     private boolean threw = false;
@@ -88,7 +89,8 @@ public final class GameRecorder {
         try {
             final List<Player> seats = game.getRegisteredPlayers();
             for (int i = 0; i < seats.size(); i++) {
-                final JsonObject snapshot = SnapshotLine.of(game, seats.get(i));
+                final RecordIds ids = recordIds.computeIfAbsent(i + 1, seat -> new RecordIds(settings.seed(), gameNumber, seat));
+                final JsonObject snapshot = SnapshotLine.of(game, seats.get(i), ids);
                 final String line = GSON.toJson(snapshot);
                 if (!line.equals(lastLine.put(i, line))) {
                     lines.add(line);

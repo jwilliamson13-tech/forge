@@ -6,7 +6,10 @@ import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.testng.annotations.Test;
@@ -28,13 +31,16 @@ import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
+import forge.util.MyRandom;
 
 public class SnapshotLineTest extends AITest {
     private Game game;
     private Player seat1;
     private Player seat2;
+    private final Map<Player, RecordIds> ids = new HashMap<>();
 
     private void setUp() {
+        ids.clear();
         game = initAndCreateGame();
         seat1 = game.getRegisteredPlayers().get(0);
         seat2 = game.getRegisteredPlayers().get(1);
@@ -43,7 +49,16 @@ public class SnapshotLineTest extends AITest {
     }
 
     private JsonObject from(final Player side) {
-        return SnapshotLine.of(game, side);
+        return SnapshotLine.of(game, side, idsOf(side));
+    }
+
+    private RecordIds idsOf(final Player side) {
+        return ids.computeIfAbsent(side, s -> new RecordIds(42L, 1, game.getRegisteredPlayers().indexOf(s) + 1));
+    }
+
+    /** The id {@code side}'s lines call this card by. */
+    private int idOf(final Player side, final Card card) {
+        return idsOf(side).of(card);
     }
 
     private JsonArray zone(final JsonObject line, final String name) {
@@ -52,11 +67,24 @@ public class SnapshotLineTest extends AITest {
 
     private JsonObject cardIn(final JsonObject line, final String zoneName, final Card card) {
         for (final JsonElement element : zone(line, zoneName)) {
-            if (element.getAsJsonObject().get("id").getAsInt() == card.getId()) {
+            if (element.getAsJsonObject().get("id").getAsInt() == idOf(sideOf(line), card)) {
                 return element.getAsJsonObject();
             }
         }
         throw new AssertionError(card + " is not in " + zoneName);
+    }
+
+    private JsonObject logged(final JsonObject line, final String name) {
+        for (final JsonElement element : zone(line, "opp_revealed")) {
+            if (element.getAsJsonObject().get("name").getAsString().equals(name)) {
+                return element.getAsJsonObject();
+            }
+        }
+        throw new AssertionError(name + " is not on the log");
+    }
+
+    private Player sideOf(final JsonObject line) {
+        return game.getRegisteredPlayers().get(line.get("side").getAsInt() - 1);
     }
 
     private static boolean isNull(final JsonObject object, final String field) {
@@ -148,7 +176,7 @@ public class SnapshotLineTest extends AITest {
         assertEquals(Set.of("id", "name", "face", "power", "toughness", "tapped", "counters", "summoning_sick", "attached_to",
                 "attached_to_seat", "controller", "face_down", "damage", "attacking_seat", "attacking_card", "blocking",
                 "blocked_by"), card.keySet());
-        assertEquals(bears.getId(), card.get("id").getAsInt());
+        assertEquals(idOf(seat1, bears), card.get("id").getAsInt());
         assertEquals("Grizzly Bears", card.get("name").getAsString());
         assertEquals("Original", card.get("face").getAsString());
         assertEquals(4, card.get("power").getAsInt());
@@ -192,7 +220,7 @@ public class SnapshotLineTest extends AITest {
         final JsonObject line = from(seat1);
 
         final JsonObject onCard = cardIn(line, "battlefield", aura);
-        assertEquals(bears.getId(), onCard.get("attached_to").getAsInt());
+        assertEquals(idOf(seat1, bears), onCard.get("attached_to").getAsInt());
         assertTrue(isNull(onCard, "attached_to_seat"));
         final JsonObject onSeat = cardIn(line, "battlefield", curse);
         assertTrue(isNull(onSeat, "attached_to"));
@@ -254,12 +282,136 @@ public class SnapshotLineTest extends AITest {
     }
 
     @Test
+    public void aRecordIdIsNotForgesAndDiffersByGameAndSide() {
+        setUp();
+        final Card bears = addCard("Grizzly Bears", seat1);
+
+        final int mine = new RecordIds(42L, 1, 1).of(bears);
+
+        assertTrue(mine != bears.getId());
+        assertEquals("a replay gets the same id", mine, new RecordIds(42L, 1, 1).of(bears));
+        assertTrue("the other side", mine != new RecordIds(42L, 1, 2).of(bears));
+        assertTrue("the next game", mine != new RecordIds(42L, 2, 1).of(bears));
+        assertTrue("another worker", mine != new RecordIds(43L, 1, 1).of(bears));
+    }
+
+    @Test
+    public void aRecordIdDoesNotDependOnWhichCardItIs() {
+        setUp();
+        final Card first = addCard("Grizzly Bears", seat1);
+        final Card second = addCard("Hill Giant", seat1);
+
+        assertEquals("only the order this side saw them in counts", new RecordIds(42L, 1, 1).of(first),
+                new RecordIds(42L, 1, 1).of(second));
+    }
+
+    @Test
+    public void aCardKeepsItsRecordIdWhileItStaysInAZone() {
+        setUp();
+        final Card bears = addCard("Grizzly Bears", seat1);
+        final int id = idOf(seat1, bears);
+
+        bears.tap(false, null, null);
+        bears.turnFaceDown(true);
+        bears.setCounters(CounterEnumType.P1P1, 1);
+        assertEquals(id, idOf(seat1, bears));
+
+        bears.addTempController(seat2, game.getNextTimestamp());
+        game.getAction().controllerChangeZoneCorrection(bears);
+        assertEquals("the same zone, whoever holds it", id, idOf(seat1, bears));
+    }
+
+    @Test
+    public void aCardGetsAFreshRecordIdEachTimeItChangesZone() {
+        setUp();
+        final Card inHand = addCardToZone("Grizzly Bears", seat1, ZoneType.Hand);
+        final int fromHand = idOf(seat1, inHand);
+
+        final Card inPlay = game.getAction().moveToPlay(inHand, null, null);
+        final int fromPlay = idOf(seat1, inPlay);
+        assertTrue(fromPlay != fromHand);
+
+        final Card inExile = game.getAction().exile(inPlay, null, null);
+        final int fromExile = idOf(seat1, inExile);
+        assertTrue(fromExile != fromPlay);
+
+        final Card blinked = game.getAction().moveToPlay(inExile, null, null);
+        assertTrue("back in the same zone it is still a new object", idOf(seat1, blinked) != fromPlay);
+        assertTrue(idOf(seat1, blinked) != fromExile);
+    }
+
+    @Test
+    public void aSpellIsANewObjectThoughForgeKeepsItsTimestamp() {
+        setUp();
+        final Card inHand = addCardToZone("Lightning Bolt", seat1, ZoneType.Hand);
+        final int fromHand = idOf(seat1, inHand);
+        final long stamp = inHand.getGameTimestamp();
+
+        final Card onStack = game.getAction().moveToStack(inHand, null);
+
+        assertEquals(stamp, onStack.getGameTimestamp());
+        assertTrue(idOf(seat1, onStack) != fromHand);
+    }
+
+    @Test
+    public void aFaceDownCardsTwoSidesCantBeMatchedById() {
+        setUp();
+        final Card morph = addCard("Grizzly Bears", seat1);
+        morph.turnFaceDown(true);
+
+        final JsonObject theirs = zone(from(seat2), "battlefield").get(0).getAsJsonObject();
+        final JsonObject mine = zone(from(seat1), "battlefield").get(0).getAsJsonObject();
+
+        assertTrue(isNull(theirs, "name"));
+        assertEquals("Grizzly Bears", mine.get("name").getAsString());
+        assertTrue(theirs.get("id").getAsInt() != mine.get("id").getAsInt());
+    }
+
+    @Test
+    public void theBattlefieldIsInRecordIdOrderSoTheSidesDontLineUp() {
+        setUp();
+        final List<Card> entered = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            entered.add(addCard("Grizzly Bears", seat1));
+        }
+
+        final List<Integer> mine = idsIn(from(seat1));
+        final List<Integer> theirs = idsIn(from(seat2));
+
+        assertEquals(mine.stream().sorted().toList(), mine);
+        assertEquals(theirs.stream().sorted().toList(), theirs);
+        final List<Card> bySeat1 = new ArrayList<>(entered);
+        bySeat1.sort(Comparator.comparing(card -> idOf(seat1, card)));
+        final List<Card> bySeat2 = new ArrayList<>(entered);
+        bySeat2.sort(Comparator.comparing(card -> idOf(seat2, card)));
+        assertFalse("the same cards, in another order", bySeat1.equals(bySeat2));
+    }
+
+    private List<Integer> idsIn(final JsonObject line) {
+        final List<Integer> values = new ArrayList<>();
+        zone(line, "battlefield").forEach(card -> values.add(card.getAsJsonObject().get("id").getAsInt()));
+        return values;
+    }
+
+    @Test
+    public void recordIdsDrawNothingFromTheGamesRandomStream() {
+        setUp();
+        addCard("Grizzly Bears", seat1);
+        final long before = MyRandom.callCount();
+
+        from(seat1);
+        from(seat2);
+
+        assertEquals(before, MyRandom.callCount());
+    }
+
+    @Test
     public void theRevealedZoneReadsTheLog() {
         setUp();
         final Card bears = addCardToZone("Grizzly Bears", seat2, ZoneType.Hand);
         game.getAction().reveal(new CardCollection(bears), seat2);
 
-        final JsonObject card = cardIn(from(seat1), "opp_revealed", bears);
+        final JsonObject card = logged(from(seat1), "Grizzly Bears");
         assertEquals("Grizzly Bears", card.get("name").getAsString());
         assertEquals("Original", card.get("face").getAsString());
         assertEquals(2, card.get("power").getAsInt());
@@ -277,7 +429,7 @@ public class SnapshotLineTest extends AITest {
         inPlay.tap(false, null, null);
         inPlay.setCounters(CounterEnumType.P1P1, 1);
 
-        final JsonObject card = cardIn(from(seat1), "opp_revealed", inPlay);
+        final JsonObject card = logged(from(seat1), "Grizzly Bears");
         assertEquals("Grizzly Bears", card.get("name").getAsString());
         assertFalse("tapped would tie it to the face-down card", card.get("tapped").getAsBoolean());
         assertEquals(0, card.getAsJsonObject("counters").size());
@@ -322,12 +474,12 @@ public class SnapshotLineTest extends AITest {
         final JsonObject top = stack.get(0).getAsJsonObject();
         assertEquals(Set.of("id", "name", "face", "face_down", "controller", "kind", "targets"), top.keySet());
         assertEquals("Counterspell", top.get("name").getAsString());
-        assertEquals(counter.getId(), top.get("id").getAsInt());
+        assertEquals(idOf(seat1, counter), top.get("id").getAsInt());
         assertEquals("Original", top.get("face").getAsString());
         assertEquals(2, top.get("controller").getAsInt());
         assertEquals("spell", top.get("kind").getAsString());
         final JsonObject spellTarget = top.getAsJsonArray("targets").get(0).getAsJsonObject();
-        assertEquals("a spell is targeted through its card", bolt.getId(), spellTarget.get("card").getAsInt());
+        assertEquals("a spell is targeted through its card", idOf(seat1, bolt), spellTarget.get("card").getAsInt());
         assertTrue(isNull(spellTarget, "seat"));
 
         final JsonObject middle = stack.get(1).getAsJsonObject();
@@ -340,7 +492,7 @@ public class SnapshotLineTest extends AITest {
         final JsonObject bottom = stack.get(2).getAsJsonObject();
         assertEquals("Lightning Bolt", bottom.get("name").getAsString());
         assertEquals(1, bottom.get("controller").getAsInt());
-        assertEquals(creature.getId(), bottom.getAsJsonArray("targets").get(0).getAsJsonObject().get("card").getAsInt());
+        assertEquals(idOf(seat1, creature), bottom.getAsJsonArray("targets").get(0).getAsJsonObject().get("card").getAsInt());
     }
 
     @Test
@@ -358,7 +510,7 @@ public class SnapshotLineTest extends AITest {
         assertTrue(isNull(hidden, "name"));
         assertTrue(isNull(hidden, "face"));
         assertTrue(hidden.get("face_down").getAsBoolean());
-        assertEquals(morph.getId(), hidden.get("id").getAsInt());
+        assertEquals(idOf(seat1, morph), hidden.get("id").getAsInt());
 
         final JsonObject known = from(seat2).getAsJsonArray("stack").get(0).getAsJsonObject();
         assertEquals("Exalted Angel", known.get("name").getAsString());
@@ -391,17 +543,17 @@ public class SnapshotLineTest extends AITest {
         final JsonObject atSeat = cardIn(line, "battlefield", first);
         assertEquals(2, atSeat.get("attacking_seat").getAsInt());
         assertTrue(isNull(atSeat, "attacking_card"));
-        assertEquals(List.of(blocker.getId()), ints(atSeat.getAsJsonArray("blocked_by")));
+        assertEquals(List.of(idOf(seat2, blocker)), ints(atSeat.getAsJsonArray("blocked_by")));
         assertEquals(0, atSeat.getAsJsonArray("blocking").size());
 
         final JsonObject atWalker = cardIn(line, "battlefield", second);
         assertTrue(isNull(atWalker, "attacking_seat"));
-        assertEquals(walker.getId(), atWalker.get("attacking_card").getAsInt());
+        assertEquals(idOf(seat2, walker), atWalker.get("attacking_card").getAsInt());
         assertEquals(0, atWalker.getAsJsonArray("blocked_by").size());
 
         final JsonObject blocking = cardIn(line, "battlefield", blocker);
         assertTrue(isNull(blocking, "attacking_seat"));
-        assertEquals(List.of(first.getId()), ints(blocking.getAsJsonArray("blocking")));
+        assertEquals(List.of(idOf(seat2, first)), ints(blocking.getAsJsonArray("blocking")));
 
         final JsonObject bystander = cardIn(line, "battlefield", idle);
         assertTrue(isNull(bystander, "attacking_seat"));

@@ -1,9 +1,11 @@
 package forge.view;
 
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 import java.util.TreeMap;
 
 import com.google.common.collect.Multiset;
@@ -17,7 +19,6 @@ import forge.game.GameObject;
 import forge.game.RevealLog;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
-import forge.game.card.CardCollectionView;
 import forge.game.card.CardState;
 import forge.game.card.CounterType;
 import forge.game.combat.Combat;
@@ -37,12 +38,15 @@ final class SnapshotLine {
     private final Player me;
     private final Player opp;
     private final Combat combat;
-    private final CardCollection battlefield = new CardCollection();
-    private final Set<Integer> battlefieldIds = new HashSet<>();
+    private final RecordIds ids;
+    private final List<Card> battlefield = new ArrayList<>();
+    /** Each permanent's record id, by Forge's id. What attachments and combat hold can be an older copy of the card. */
+    private final Map<Integer, Integer> battlefieldIds = new HashMap<>();
 
-    private SnapshotLine(final Game game, final Player side) {
+    private SnapshotLine(final Game game, final Player side, final RecordIds ids) {
         this.game = game;
         this.me = side;
+        this.ids = ids;
         this.opp = game.getRegisteredPlayers().stream().filter(p -> !p.equals(side)).findFirst().orElseThrow();
         this.combat = game.getCombat();
         for (final Player player : game.getRegisteredPlayers()) {
@@ -50,12 +54,14 @@ final class SnapshotLine {
             battlefield.addAll(player.getCardsIn(ZoneType.Battlefield));
         }
         for (final Card card : battlefield) {
-            battlefieldIds.add(card.getId());
+            battlefieldIds.put(card.getId(), ids.of(card));
         }
+        // the two sides' lines would otherwise match up by position, and one of them can name a card the other hides
+        battlefield.sort(Comparator.comparing(card -> battlefieldIds.get(card.getId())));
     }
 
-    static JsonObject of(final Game game, final Player side) {
-        return new SnapshotLine(game, side).build();
+    static JsonObject of(final Game game, final Player side, final RecordIds ids) {
+        return new SnapshotLine(game, side, ids).build();
     }
 
     private JsonObject build() {
@@ -100,7 +106,7 @@ final class SnapshotLine {
         return zones;
     }
 
-    private JsonArray cards(final CardCollectionView cards) {
+    private JsonArray cards(final Iterable<Card> cards) {
         final JsonArray list = new JsonArray();
         for (final Card card : cards) {
             list.add(card(card));
@@ -110,7 +116,7 @@ final class SnapshotLine {
 
     private JsonObject card(final Card card) {
         final JsonObject out = new JsonObject();
-        out.addProperty("id", card.getId());
+        out.addProperty("id", ids.of(card));
         addIdentity(out, card);
         // the face-down state is a creature, but a face-down card in exile isn't a 2/2 of anything
         final boolean hasPower = card.isCreature() && (card.isInPlay() || !card.isFaceDown());
@@ -121,7 +127,7 @@ final class SnapshotLine {
         // sickness starts true and only clears on the battlefield, so a card in hand would say true
         out.addProperty("summoning_sick", card.isInPlay() && card.isSick());
         final GameEntity host = card.getEntityAttachedTo();
-        out.addProperty("attached_to", host instanceof Card c && battlefieldIds.contains(c.getId()) ? c.getId() : null);
+        out.addProperty("attached_to", host instanceof Card c ? battlefieldIds.get(c.getId()) : null);
         out.addProperty("attached_to_seat", host instanceof Player p ? seat(p) : null);
         out.addProperty("controller", seat(card.getController()));
         out.addProperty("face_down", card.isFaceDown());
@@ -159,16 +165,15 @@ final class SnapshotLine {
         final boolean attacking = combat != null && combat.isAttacking(card);
         final GameEntity defender = attacking ? combat.getDefenderByAttacker(card) : null;
         out.addProperty("attacking_seat", defender instanceof Player p ? seat(p) : null);
-        out.addProperty("attacking_card", defender instanceof Card c && battlefieldIds.contains(c.getId()) ? c.getId() : null);
+        out.addProperty("attacking_card", defender instanceof Card c ? battlefieldIds.get(c.getId()) : null);
         final boolean blocking = combat != null && combat.isBlocking(card);
-        out.add("blocking", battlefieldIds(blocking ? combat.getAttackersBlockedBy(card) : new CardCollection()));
-        out.add("blocked_by", battlefieldIds(attacking ? combat.getBlockers(card) : new CardCollection()));
+        out.add("blocking", onBattlefield(blocking ? combat.getAttackersBlockedBy(card) : new CardCollection()));
+        out.add("blocked_by", onBattlefield(attacking ? combat.getBlockers(card) : new CardCollection()));
     }
 
-    private JsonArray battlefieldIds(final CardCollection cards) {
-        final List<Integer> ids = cards.stream().map(Card::getId).filter(battlefieldIds::contains).sorted().toList();
+    private JsonArray onBattlefield(final CardCollection cards) {
         final JsonArray list = new JsonArray();
-        ids.forEach(list::add);
+        cards.stream().map(card -> battlefieldIds.get(card.getId())).filter(Objects::nonNull).sorted().forEach(list::add);
         return list;
     }
 
@@ -209,7 +214,7 @@ final class SnapshotLine {
             final SpellAbility ability = item.getSpellAbility();
             final Card source = item.getSourceCard();
             final JsonObject out = new JsonObject();
-            out.addProperty("id", source.getId());
+            out.addProperty("id", ids.of(source));
             addIdentity(out, source);
             out.addProperty("face_down", source.isFaceDown());
             out.addProperty("controller", seat(ability.getActivatingPlayer()));
@@ -226,7 +231,7 @@ final class SnapshotLine {
             for (final GameObject target : choices) {
                 final JsonObject out = new JsonObject();
                 final Card card = target instanceof SpellAbility spell ? spell.getHostCard() : target instanceof Card c ? c : null;
-                out.addProperty("card", card == null ? null : card.getId());
+                out.addProperty("card", card == null ? null : ids.of(card));
                 out.addProperty("seat", target instanceof Player p ? seat(p) : null);
                 list.add(out);
             }
