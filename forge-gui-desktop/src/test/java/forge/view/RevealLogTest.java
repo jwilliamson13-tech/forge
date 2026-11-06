@@ -110,6 +110,20 @@ public class RevealLogTest extends AITest {
     }
 
     @Test
+    public void anEntrySaysWhereTheCardWasLastShown() {
+        setUp();
+        final Card bolt = addCardToZone("Lightning Bolt", opp, ZoneType.Hand);
+        reveal(bolt);
+        assertEquals(ZoneType.Hand, game.REVEAL_LOG.knownTo(viewer).get(0).seenIn());
+
+        final Card moved = game.getAction().moveToLibrary(bolt, null);
+        assertEquals("a hidden move changes nothing on the notepad", ZoneType.Hand, game.REVEAL_LOG.knownTo(viewer).get(0).seenIn());
+
+        reveal(moved);
+        assertEquals(ZoneType.Library, game.REVEAL_LOG.knownTo(viewer).get(0).seenIn());
+    }
+
+    @Test
     public void aRevealSurvivesAHiddenMove() {
         setUp();
         final Card bolt = addCardToZone("Lightning Bolt", opp, ZoneType.Hand);
