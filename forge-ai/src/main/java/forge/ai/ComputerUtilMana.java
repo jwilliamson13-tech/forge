@@ -160,7 +160,7 @@ public class ComputerUtilMana {
         List<Integer> colorsMostCommon;
         if (sourcesForShards.keySet().stream().anyMatch(ManaCostShard::isGeneric)) {
             // early tempo is more important so we only look at hand here
-            CardCollection hand = new CardCollection(sa.getActivatingPlayer().getCardsIn(ZoneType.Hand));
+            CardCollection hand = new CardCollection(HonestPlay.handAsKnown(sa.getActivatingPlayer()));
             hand.remove(sa.getHostCard());
             AiDeckStatistics stats = AiDeckStatistics.fromCards(hand);
             Integer[] orderedColorsIdx = {0, 1, 2, 3, 4};
@@ -1644,7 +1644,7 @@ public class ComputerUtilMana {
     }
 
     public static CardCollection getAvailableManaSources(final Player ai, final boolean checkPlayable) {
-        final CardCollectionView list = CardCollection.combine(ai.getCardsIn(ZoneType.Battlefield), ai.getCardsIn(ZoneType.Hand));
+        final CardCollectionView list = CardCollection.combine(ai.getCardsIn(ZoneType.Battlefield), HonestPlay.handAsKnown(ai));
         final List<Card> manaSources = CardLists.filter(list, c -> {
             for (final SpellAbility am : getAIPlayableMana(c)) {
                 am.setActivatingPlayer(ai);
