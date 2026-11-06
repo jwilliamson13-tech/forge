@@ -115,7 +115,7 @@ public class ChangeZoneAi extends SpellAbilityAi {
             } else if (sa.hasParam("TgtZone")) {
                 origin.addAll(ZoneType.listValueOf(sa.getParam("TgtZone")));
             }
-            CardCollection list = CardLists.getValidCards(ai.getGame().getCardsIn(origin),
+            CardCollection list = CardLists.getValidCards(HonestPlay.seenInAnySeat(ai, origin),
                     sa.getTargetRestrictions().getValidTgts(), ai, sa.getHostCard(), sa);
 
             final List<String> creatureTypes = Lists.newArrayList();
@@ -335,10 +335,12 @@ public class ChangeZoneAi extends SpellAbilityAi {
         }
 
         for (final Player p : pDefined) {
-            CardCollectionView list = p.getCardsIn(origin);
+            CardCollectionView list = HonestPlay.seenIn(ai, p, origin);
+            // an opponent's unseen hand or library isn't empty just because nothing in it has been seen
+            final boolean holdsUnseen = HonestPlay.holdsUnseen(ai, p, origin);
 
             // remove cards that won't be seen if library can't be searched
-            if (origin.contains(ZoneType.Library)) {
+            if (origin.contains(ZoneType.Library) && !holdsUnseen) {
                 CardCollectionView searchable = ai.getSearchableLibrary(sa, p);
                 list = CardLists.filter(list, c -> !c.isInZone(ZoneType.Library) || (searchable != null && searchable.contains(c)));
             }
@@ -361,7 +363,7 @@ public class ChangeZoneAi extends SpellAbilityAi {
 
             if (!activateForCost &&
                     (p == ai || !canIgnoreEmptyDefinedPlayers(ai, sa, origin, destination, pDefined)) &&
-                    (list.isEmpty() || ("Battlefield".equals(destination) && Iterables.any(list, card -> ComputerUtil.isETBprevented(card))))) {
+                    ((list.isEmpty() && !holdsUnseen) || ("Battlefield".equals(destination) && Iterables.any(list, card -> ComputerUtil.isETBprevented(card))))) {
                 return new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
             }
 
@@ -893,7 +895,7 @@ public class ChangeZoneAi extends SpellAbilityAi {
         if ("X".equals(sa.getTargetRestrictions().getMinTargets()) && sa.getSVar("X").equals("Count$xPaid")) {
             ComputerUtilCost.setMaxXValue(sa, ai, sa.isTrigger());
         }
-        CardCollection list = CardLists.getTargetableCards(game.getCardsIn(origin), sa);
+        CardCollection list = CardLists.getTargetableCards(HonestPlay.seenInAnySeat(ai, origin), sa);
 
         list = ComputerUtil.filterAITgts(sa, ai, list, true);
 
@@ -1510,11 +1512,13 @@ public class ChangeZoneAi extends SpellAbilityAi {
         if (player.isOpponentOf(decider) && ZoneType.Hand.equals(destination) && origin.contains(ZoneType.Sideboard)) {
             return ComputerUtilCard.getWorstAI(fetchList);
         }
-        List<String> keyCards = player.getRegisteredPlayer().getDeck().getKeyCards();
+        // another player's key cards are a line in their deck list
+        final boolean othersDeck = HonestPlay.on(decider) && !player.equals(decider);
+        List<String> keyCards = othersDeck ? new ArrayList<>() : player.getRegisteredPlayer().getDeck().getKeyCards();
         String position = sa.getParamOrDefault("LibraryPosition", null);
         // Focus on the keycards I don't already have access to
-        if (destination.equals(ZoneType.Battlefield) || destination.equals(ZoneType.Hand) ||
-                (destination.equals(ZoneType.Library) && "0".equals(position))) {
+        if (!othersDeck && (destination.equals(ZoneType.Battlefield) || destination.equals(ZoneType.Hand) ||
+                (destination.equals(ZoneType.Library) && "0".equals(position)))) {
             for (Card c : player.getCardsIn(ZoneType.Hand, ZoneType.Battlefield)) {
                 keyCards.remove(c.getName());
             }
@@ -1968,8 +1972,12 @@ public class ChangeZoneAi extends SpellAbilityAi {
                 // this assumes that the deck list is known to the AI before the match starts,
                 // so it's possible to figure out what remains in library/hand if you know what's
                 // in graveyard, exile, etc.
-                scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Library));
-                scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Hand));
+                if (HonestPlay.on(aiPlayer)) {
+                    scanList.addAll(HonestPlay.knownOpponentCards(aiPlayer));
+                } else {
+                    scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Library));
+                    scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Hand));
+                }
             }
 
             if (logic.contains("NonLand")) {

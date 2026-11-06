@@ -262,7 +262,8 @@ public class ComputerUtilCard {
             // TODO - Improve ranking various non-basic lands depending on context
 
             // Urza's Mine/Tower/Power Plant
-            final CardCollectionView aiAvailable = nbLand.get(0).getController().getCardsIn(ZoneType.Battlefield, ZoneType.Hand);
+            final Player landController = nbLand.get(0).getController();
+            final CardCollectionView aiAvailable = CardCollection.combine(landController.getCardsIn(ZoneType.Battlefield), HonestPlay.handAsKnown(landController));
             if (IterableUtil.any(list, CardPredicates.nameEquals("Urza's Mine"))) {
                 if (CardLists.filter(aiAvailable, CardPredicates.nameEquals("Urza's Mine")).isEmpty()) {
                     return CardLists.filter(nbLand, CardPredicates.nameEquals("Urza's Mine")).getFirst();
@@ -1127,6 +1128,14 @@ public class ComputerUtilCard {
         return true;
     };
 
+    /** Every card {@code who} controls, or under honest play every card of the AI's own and what it knows of the others'. */
+    private static CardCollectionView cardsOf(final Player ai, final Player who) {
+        if (!HonestPlay.on(ai)) {
+            return CardLists.filterControlledBy(ai.getGame().getCardsInGame(), who);
+        }
+        return who.equals(ai) ? who.getAllCards() : HonestPlay.knownCards(ai, who);
+    }
+
     public static List<String> chooseColor(SpellAbility sa, int min, int max, List<String> colorChoices) {
         List<String> chosen = new ArrayList<>();
         Player ai = sa.getActivatingPlayer();
@@ -1136,19 +1145,19 @@ public class ComputerUtilCard {
             final String logic = sa.getParam("AILogic");
 
             if (logic.equals("MostProminentInHumanDeck")) {
-                chosen.add(getMostProminentColor(CardLists.filterControlledBy(game.getCardsInGame(), opp), colorChoices));
+                chosen.add(getMostProminentColor(cardsOf(ai, opp), colorChoices));
             } else if (logic.equals("MostProminentInComputerDeck")) {
-                chosen.add(getMostProminentColor(CardLists.filterControlledBy(game.getCardsInGame(), ai), colorChoices));
+                chosen.add(getMostProminentColor(cardsOf(ai, ai), colorChoices));
             } else if (logic.equals("MostProminentDualInComputerDeck")) {
-                List<String> prominence = getColorByProminence(CardLists.filterControlledBy(game.getCardsInGame(), ai));
+                List<String> prominence = getColorByProminence(new CardCollection(cardsOf(ai, ai)));
                 chosen.add(prominence.get(0));
                 chosen.add(prominence.get(1));
             } else if (logic.equals("MostProminentInGame")) {
-                chosen.add(getMostProminentColor(game.getCardsInGame(), colorChoices));
+                chosen.add(getMostProminentColor(HonestPlay.on(ai) ? HonestPlay.allCardsKnownTo(ai) : game.getCardsInGame(), colorChoices));
             } else if (logic.equals("MostProminentHumanCreatures")) {
                 CardCollectionView list = opp.getCreaturesInPlay();
                 if (list.isEmpty()) {
-                    list = CardLists.filter(CardLists.filterControlledBy(game.getCardsInGame(), opp), CardPredicates.CREATURES);
+                    list = CardLists.filter(cardsOf(ai, opp), CardPredicates.CREATURES);
                 }
                 chosen.add(getMostProminentColor(list, colorChoices));
             } else if (logic.equals("MostProminentComputerControls")) {
@@ -1160,9 +1169,9 @@ public class ComputerUtilCard {
             } else if (logic.equals("MostProminentAttackers") && game.getPhaseHandler().inCombat()) {
                 chosen.add(getMostProminentColor(game.getCombat().getAttackers(), colorChoices));
             } else if (logic.equals("MostProminentInActivePlayerHand")) {
-                chosen.add(getMostProminentColor(game.getPhaseHandler().getPlayerTurn().getCardsIn(ZoneType.Hand), colorChoices));
+                chosen.add(getMostProminentColor(HonestPlay.handAsKnown(game.getPhaseHandler().getPlayerTurn()), colorChoices));
             } else if (logic.equals("MostProminentInComputerDeckButGreen")) {
-                List<String> prominence = getColorByProminence(CardLists.filterControlledBy(game.getCardsInGame(), ai));
+                List<String> prominence = getColorByProminence(new CardCollection(cardsOf(ai, ai)));
                 if (prominence.get(0).equals(MagicColor.Constant.GREEN)) {
                     chosen.add(prominence.get(1));
                 } else {

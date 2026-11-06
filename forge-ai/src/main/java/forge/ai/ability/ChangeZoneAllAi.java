@@ -54,7 +54,7 @@ public class ChangeZoneAllAi extends SpellAbilityAi {
         // ex. "Return all Auras attached to target"
         // ex. "Return all blocking/blocked by target creature"
 
-        CardCollectionView oppType = ai.getOpponents().getCardsIn(origin);
+        CardCollectionView oppType = HonestPlay.seenInOpponents(ai, origin);
         CardCollectionView computerType = ai.getCardsIn(origin);
 
         // Ugin AI: always try to sweep before considering +1
@@ -287,10 +287,10 @@ public class ChangeZoneAllAi extends SpellAbilityAi {
         final ZoneType origin = ZoneType.listValueOf(sa.getParam("Origin")).get(0);
 
         if (ComputerUtilAbility.getAbilitySourceName(sa).equals("Profaner of the Dead")) {
-            boolean result = ai.getOpponents().getCardsIn(origin).anyMatch(CardPredicates.CREATURES);
+            boolean result = HonestPlay.seenInOpponents(ai, origin).anyMatch(CardPredicates.CREATURES);
             return result ? new AiAbilityDecision(100, AiPlayDecision.WillPlay) : new AiAbilityDecision(0, AiPlayDecision.CantPlayAi);
         }
-        CardCollectionView humanType = ai.getOpponents().getCardsIn(origin);
+        CardCollectionView humanType = HonestPlay.seenInOpponents(ai, origin);
         humanType = AbilityUtils.filterListByType(humanType, sa.getParam("ChangeType"), sa);
         CardCollectionView computerType = ai.getCardsIn(origin);
         computerType = AbilityUtils.filterListByType(computerType, sa.getParam("ChangeType"), sa);

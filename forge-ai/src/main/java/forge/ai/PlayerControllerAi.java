@@ -137,7 +137,7 @@ public class PlayerControllerAi extends PlayerController {
                 continue;
             }
             List<PaperCard> known = match.getPlayedMain(rp);
-            if (known == null && rp.getDeck() != null) {
+            if (known == null && rp.getDeck() != null && !HonestPlay.on(player)) {
                 known = rp.getDeck().getMain().toFlatList();
             }
             if (known != null && !known.isEmpty()) {
@@ -579,13 +579,24 @@ public class PlayerControllerAi extends PlayerController {
     public void reveal(CardCollectionView cards, ZoneType zone, Player owner, String messagePrefix, boolean addSuffix) {
         for (Card c : cards) {
             AiCardMemory.rememberCard(player, c, AiCardMemory.MemorySet.REVEALED_CARDS);
+            logReveal(c);
         }
     }
 
     @Override
     public void reveal(List<CardView> cards, ZoneType zone, PlayerView owner, String messagePrefix, boolean addSuffix) {
         for (CardView cv : cards) {
-            AiCardMemory.rememberCard(player, player.getGame().findByView(cv), AiCardMemory.MemorySet.REVEALED_CARDS);
+            Card c = player.getGame().findByView(cv);
+            AiCardMemory.rememberCard(player, c, AiCardMemory.MemorySet.REVEALED_CARDS);
+            logReveal(c);
+        }
+    }
+
+    /** Only forge sim keeps a RevealLog. The memory above is what default play uses. */
+    private void logReveal(Card c) {
+        RevealLog log = player.getGame().REVEAL_LOG;
+        if (log != null && c != null) {
+            log.revealed(player, c);
         }
     }
 
@@ -633,6 +644,14 @@ public class PlayerControllerAi extends PlayerController {
         return ImmutablePair.of(toTop, toGraveyard);
     }
 
+    /** Every card in the game, or under honest play every card of the AI's own and what it knows of the opponents'. */
+    private CardCollectionView cardsToLookThrough() {
+        if (!HonestPlay.on(player)) {
+            return getGame().getCardsInGame();
+        }
+        return HonestPlay.allCardsKnownTo(player);
+    }
+
     @Override
     public boolean willPutCardOnTop(Card c) {
         // This is used for Clash. Currently uses Scry logic to determine whether the card should be put on top.
@@ -651,7 +670,7 @@ public class PlayerControllerAi extends PlayerController {
 
         if (destinationZone == ZoneType.Graveyard) {
             // In presence of Volrath's Shapeshifter in deck, try to place the best creature on top of the graveyard
-            if (getGame().getCardsInGame().anyMatch(card -> {
+            if (cardsToLookThrough().anyMatch(card -> {
                 // need a custom predicate here since Volrath's Shapeshifter may have a different name OTB
                 return card.getOriginalState(CardStateName.Original).getName().equals("Volrath's Shapeshifter");
             })) {
@@ -1383,7 +1402,7 @@ public class PlayerControllerAi extends PlayerController {
         if (logic == null || logic.equals("MostProminentHumanCreatures")) {
             CardCollection list = player.getOpponents().getCreaturesInPlay();
             if (list.isEmpty()) {
-                list = CardLists.filterControlledBy(getGame().getCardsInGame(), player.getOpponents());
+                list = HonestPlay.opponentCards(player);
             }
             if (!list.isEmpty()) {
                 choice = ComputerUtilCard.getMostProminentColor(list);
@@ -1732,7 +1751,8 @@ public class PlayerControllerAi extends PlayerController {
     public String chooseCardName(SpellAbility sa, Predicate<ICardFace> cpp, String valid, String message) {
         if (sa.hasParam("AILogic")) {
             CardCollectionView aiLibrary = player.getCardsIn(ZoneType.Library);
-            CardCollectionView oppLibrary = player.getStrongestOpponent().getCardsIn(ZoneType.Library);
+            CardCollectionView oppLibrary = HonestPlay.on(player) ? HonestPlay.namesWorthGuessing(player, player.getStrongestOpponent())
+                    : player.getStrongestOpponent().getCardsIn(ZoneType.Library);
             final Card source = sa.getHostCard();
             final String logic = sa.getParam("AILogic");
 
@@ -1786,7 +1806,7 @@ public class PlayerControllerAi extends PlayerController {
                 return name;
             }
         } else {
-            CardCollectionView list = CardLists.filterControlledBy(getGame().getCardsInGame(), player.getOpponents());
+            CardCollectionView list = HonestPlay.opponentCards(player);
             list = CardLists.filter(list, CardPredicates.NON_LANDS);
             if (!list.isEmpty()) {
                 return list.get(0).getName();

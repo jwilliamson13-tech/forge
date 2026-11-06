@@ -2945,7 +2945,8 @@ public class AiController {
                     List<Integer> counter = Lists.newArrayList(0,0,0);
                     int max = 0;
                     int slot = 0;
-                    for (Card c : relatedPlayer.getZone(ZoneType.Library).getCards()) {
+                    final boolean seenOnly = HonestPlay.on(player) && !relatedPlayer.equals(player);
+                    for (Card c : seenOnly ? HonestPlay.knownCards(player, relatedPlayer) : relatedPlayer.getZone(ZoneType.Library).getCards()) {
                         if (!c.isCreature()) {
                             continue;
                         }

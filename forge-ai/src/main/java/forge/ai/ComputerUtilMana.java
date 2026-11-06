@@ -160,7 +160,7 @@ public class ComputerUtilMana {
         List<Integer> colorsMostCommon;
         if (sourcesForShards.keySet().stream().anyMatch(ManaCostShard::isGeneric)) {
             // early tempo is more important so we only look at hand here
-            CardCollection hand = new CardCollection(sa.getActivatingPlayer().getCardsIn(ZoneType.Hand));
+            CardCollection hand = new CardCollection(HonestPlay.handAsKnown(sa.getActivatingPlayer()));
             hand.remove(sa.getHostCard());
             AiDeckStatistics stats = AiDeckStatistics.fromCards(hand);
             Integer[] orderedColorsIdx = {0, 1, 2, 3, 4};
@@ -978,7 +978,7 @@ public class ComputerUtilMana {
         }
 
         int handColors = 0;
-        for (final Card c : ai.getCardsIn(ZoneType.Hand)) {
+        for (final Card c : HonestPlay.handAsKnown(ai)) {
             if (c != sa.getHostCard()) {
                 handColors |= c.getColor().getColor();
             }
@@ -1181,7 +1181,7 @@ public class ComputerUtilMana {
                 }
             }
             // check if combo mana can produce most common color in hand
-            String commonColor = ComputerUtilCard.getMostProminentColor(ai.getCardsIn(ZoneType.Hand));
+            String commonColor = ComputerUtilCard.getMostProminentColor(HonestPlay.handAsKnown(ai));
             if (!commonColor.isEmpty() && satisfiesColorChoice(comboMana, choiceString, MagicColor.toShortString(commonColor)) && comboMana.getComboColors(manaAb).contains(MagicColor.toShortString(commonColor))) {
                 choice = MagicColor.toShortString(commonColor);
             } else {
@@ -1644,7 +1644,7 @@ public class ComputerUtilMana {
     }
 
     public static CardCollection getAvailableManaSources(final Player ai, final boolean checkPlayable) {
-        final CardCollectionView list = CardCollection.combine(ai.getCardsIn(ZoneType.Battlefield), ai.getCardsIn(ZoneType.Hand));
+        final CardCollectionView list = CardCollection.combine(ai.getCardsIn(ZoneType.Battlefield), HonestPlay.handAsKnown(ai));
         final List<Card> manaSources = CardLists.filter(list, c -> {
             for (final SpellAbility am : getAIPlayableMana(c)) {
                 am.setActivatingPlayer(ai);

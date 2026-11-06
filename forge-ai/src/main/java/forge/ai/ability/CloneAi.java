@@ -3,6 +3,7 @@ package forge.ai.ability;
 import forge.ai.AiAbilityDecision;
 import forge.ai.AiPlayDecision;
 import forge.ai.ComputerUtilCard;
+import forge.ai.HonestPlay;
 import forge.ai.PlayerControllerAi;
 import forge.ai.SpellAbilityAi;
 import forge.game.Game;
@@ -98,7 +99,7 @@ public class CloneAi extends SpellAbilityAi {
                 // the cards to copy may be somewhere else than the battlefield (Superior Spider-Man: a graveyard)
                 final ZoneType choiceZone = sa.hasParam("ChoiceZone")
                         ? ZoneType.smartValueOf(sa.getParam("ChoiceZone")) : ZoneType.Battlefield;
-                CardCollectionView choices = CardLists.getValidCards(host.getGame().getCardsIn(choiceZone),
+                CardCollectionView choices = CardLists.getValidCards(HonestPlay.seenInAnySeat(aiPlayer, List.of(choiceZone)),
                         sa.getParam("Choices"), host.getController(), host, sa);
 
                 chance = !choices.isEmpty();

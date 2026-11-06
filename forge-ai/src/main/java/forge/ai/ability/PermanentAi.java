@@ -116,6 +116,9 @@ public class PermanentAi extends SpellAbilityAi {
 
         if ("ChaliceOfTheVoid".equals(source.getSVar("AICurseEffect"))) {
             int maxX = sa.getXManaCostPaid(); // as set above
+            final boolean honest = HonestPlay.on(ai);
+            final Player oppToHit = ai.getStrongestOpponent();
+            final CardCollectionView oppPool = honest ? HonestPlay.knownCards(ai, oppToHit) : oppToHit.getAllCards();
             CardCollection otherChalices = CardLists.filter(ai.getGame().getCardsIn(ZoneType.Battlefield), CardPredicates.nameEquals("Chalice of the Void"));
             outer: for (int i = 0; i <= maxX; i++) {
                 for (Card chalice : otherChalices) {
@@ -129,7 +132,7 @@ public class PermanentAi extends SpellAbilityAi {
                 CardCollection aiCards = CardLists.filter(ai.getAllCards(), card -> (card.isInZone(ZoneType.Library) || !card.isInZone(ZoneType.Hand))
                         && card.getState(CardStateName.Original).getManaCost() != null
                         && card.getState(CardStateName.Original).getManaCost().getCMC() == manaValue);
-                CardCollection oppCards = CardLists.filter(ai.getStrongestOpponent().getAllCards(), card -> (card.isInZone(ZoneType.Library) || !card.isInZone(ZoneType.Hand))
+                CardCollection oppCards = CardLists.filter(oppPool, card -> (honest || card.isInZone(ZoneType.Library) || !card.isInZone(ZoneType.Hand))
                         && card.getState(CardStateName.Original).getManaCost() != null
                         && card.getState(CardStateName.Original).getManaCost().getCMC() == manaValue);
                 if (manaValue == 0) {
@@ -138,7 +141,9 @@ public class PermanentAi extends SpellAbilityAi {
                     // also filter out other Chalices in our own deck
                     aiCards = CardLists.filter(aiCards, CardPredicates.nameNotEquals("Chalice of the Void"));
                 }
-                if (oppCards.size() > 3 && oppCards.size() >= aiCards.size() * 2) {
+                final boolean hitsThemHarder = honest ? hitsSeenCardsHarder(ai, oppPool, oppCards, aiCards)
+                        : oppCards.size() > 3 && oppCards.size() >= aiCards.size() * 2;
+                if (hitsThemHarder) {
                     sa.setXManaCostPaid(manaValue);
                     return new AiAbilityDecision(100, AiPlayDecision.WillPlay);
                 }
@@ -344,4 +349,15 @@ public class PermanentAi extends SpellAbilityAi {
         }
         return checkApiLogic(ai, sa);
      }
+
+    /**
+     * Under honest play, whether a Chalice at this value hurts the opponent at least twice as much as the AI. A count of
+     * seen cards can't stand next to a whole deck's, so this compares shares of the nonland cards.
+     */
+    private static boolean hitsSeenCardsHarder(Player ai, CardCollectionView seen, CardCollection seenAtValue, CardCollection ownAtValue) {
+        final int seenHit = CardLists.filter(seenAtValue, CardPredicates.NON_LANDS).size();
+        final int seenSpells = CardLists.filter(seen, CardPredicates.NON_LANDS).size();
+        final int ownSpells = CardLists.filter(ai.getAllCards(), CardPredicates.NON_LANDS).size();
+        return seenHit >= 2 && (long) seenHit * ownSpells >= 2L * ownAtValue.size() * seenSpells;
+    }
 }

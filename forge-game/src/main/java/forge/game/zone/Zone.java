@@ -156,6 +156,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
     }
 
     public final boolean contains(final Predicate<Card> condition) {
+        noteRead();
         return cardList.anyMatch(condition);
     }
 
@@ -203,6 +204,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
     }
 
     public final Card get(final int index) {
+        noteRead();
         return cardList.get(index);
     }
 
@@ -211,7 +213,16 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
     }
 
     public CardCollectionView getCards(final boolean filter) {
-        return cardList; // Non-Battlefield PlayerZones don't care about the filter
+        final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
+        return watch == null ? cardList : watch.view(this, cardList); // Non-Battlefield PlayerZones don't care about the filter
+    }
+
+    /** For the reads that return cards without a collection to hand over. Zone's own code uses cardList directly. */
+    private void noteRead() {
+        final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
+        if (watch != null) {
+            watch.directRead(this, cardList);
+        }
     }
 
     public final boolean isEmpty() {
@@ -255,6 +266,7 @@ public class Zone implements java.io.Serializable, Iterable<Card> {
 
     @Override
     public Iterator<Card> iterator() {
+        noteRead();
         return cardList.iterator();
     }
 

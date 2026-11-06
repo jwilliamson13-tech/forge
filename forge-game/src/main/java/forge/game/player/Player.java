@@ -50,6 +50,7 @@ import forge.game.staticability.*;
 import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerHandler;
 import forge.game.trigger.TriggerType;
+import forge.game.zone.HiddenReadWatch;
 import forge.game.zone.PlayerZone;
 import forge.game.zone.PlayerZoneBattlefield;
 import forge.game.zone.Zone;
@@ -1371,6 +1372,15 @@ public class Player extends GameEntity implements Comparable<Player> {
         return getCardsIn(zones, true);
     }
     public final CardCollectionView getCardsIn(final Iterable<ZoneType> zones, boolean filterOutPhasedOut) {
+        final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
+        if (watch != null) {
+            // copying a zone into one list reads it, and ChangeZoneAi only wants to know if the list is empty
+            final List<CardCollectionView> parts = new ArrayList<>();
+            for (final ZoneType z : zones) {
+                parts.add(getCardsIn(z, filterOutPhasedOut));
+            }
+            return watch.combine(parts);
+        }
         final CardCollection result = new CardCollection();
         for (final ZoneType z : zones) {
             result.addAll(getCardsIn(z, filterOutPhasedOut));
@@ -1378,11 +1388,7 @@ public class Player extends GameEntity implements Comparable<Player> {
         return result;
     }
     public final CardCollectionView getCardsIn(final ZoneType... zones) {
-        final CardCollection result = new CardCollection();
-        for (final ZoneType z : zones) {
-            result.addAll(getCardsIn(z));
-        }
-        return result;
+        return getCardsIn(Arrays.asList(zones));
     }
 
     /**

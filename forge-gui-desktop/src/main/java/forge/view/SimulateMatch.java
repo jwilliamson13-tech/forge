@@ -1,6 +1,7 @@
 package forge.view;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -10,6 +11,7 @@ import org.apache.commons.lang3.time.StopWatch;
 import forge.LobbyPlayer;
 import forge.ai.AIOption;
 import forge.ai.AiProfileUtil;
+import forge.ai.LobbyPlayerAi;
 import forge.ai.simulation.FlatMonteCarloStats;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
@@ -22,6 +24,7 @@ import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
 import forge.game.player.RegisteredPlayer;
+import forge.game.zone.HiddenReadWatch;
 import forge.gamemodes.tournament.system.AbstractTournament;
 import forge.gamemodes.tournament.system.TournamentBracket;
 import forge.gamemodes.tournament.system.TournamentPairing;
@@ -48,12 +51,30 @@ public class SimulateMatch {
     private static final String SIM_MODE_HYBRID = "hybrid";
     private static final String SIM_MODE_FULL = "full";
 
+    /** The turn cap's counterpart of the clock's line. The sim-runner reads it to tell the two kinds of draw apart. */
+    private static final String TURN_CAP_LINE = "Stopping game at the turn cap as draw";
+    private static final int DEFAULT_TURN_CAP = 50;
+
     /** Set by -budget: search steps per AI decision, or 0 to leave the wall-clock limit in charge. */
     private static int searchBudget = 0;
     /** True with -sim or -budget. Without them the output stays what stock Forge prints. */
     private static boolean printAiLimits = false;
     /** True when -sim gives a seat a mode that searches. Only then do the search changes of Game.AI_SIM_SEARCH apply. */
     private static boolean simSearch = false;
+    /** Set by -record: what to write game records with, or null to write none. */
+    private static GameRecorder.Settings recording = null;
+    /** True for forge sim unless -tripwire off says otherwise. It reports in stdout, and in the game record if there is one. */
+    private static boolean tripwire = false;
+    /** True with -honest on: the AI keeps to what a person in its seat could know. See Game.AI_HONEST_PLAY. */
+    private static boolean honest = false;
+
+    static void setTripwire(final boolean on) {
+        tripwire = on;
+    }
+
+    static void setRecording(final GameRecorder.Settings settings) {
+        recording = settings;
+    }
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
@@ -139,6 +160,27 @@ public class SimulateMatch {
         printAiLimits = searchBudget > 0 || params.containsKey("sim");
         simSearch = anySeatSearches(params.get("sim"));
 
+        recording = null;
+        final String recordProblem = recordOptionsProblem(params);
+        if (recordProblem != null) {
+            System.out.println(recordProblem);
+            return;
+        }
+
+        final String tripwireProblem = tripwireOptionProblem(params);
+        if (tripwireProblem != null) {
+            System.out.println(tripwireProblem);
+            return;
+        }
+        tripwire = tripwireOn(params);
+
+        final String honestProblem = honestOptionProblem(params);
+        if (honestProblem != null) {
+            System.out.println(honestProblem);
+            return;
+        }
+        honest = List.of("on").equals(params.get("honest"));
+
         Long seed = null;
         if (params.containsKey("s")) {
             seed = Long.parseLong(params.get("s").get(0));
@@ -169,6 +211,7 @@ public class SimulateMatch {
         }
 
         List<RegisteredPlayer> pp = new ArrayList<>();
+        List<GameRecorder.Seat> seats = new ArrayList<>();
         StringBuilder sb = new StringBuilder();
 
         int i = 1;
@@ -233,14 +276,23 @@ public class SimulateMatch {
                 // so that a seed still replays the same games.
                 int sleeveCount = GuiBase.getInterface().getSleevesCount();
                 int sleeveIndex = sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount);
-                rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile));
+                LobbyPlayer player = GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile);
+                ((LobbyPlayerAi) player).setScopedDecisions(tripwire || honest);
+                rp.setPlayer(player);
                 pp.add(rp);
+                // the budget is one value for the run, and a heuristic seat has no search to spend it on
+                seats.add(new GameRecorder.Seat(d.getName(), simMode, SIM_MODE_HEURISTIC.equals(simMode) ? 0 : searchBudget));
                 i++;
             }
         }
 
         if (params.containsKey("c")) {
             rules.setSimTimeout(Integer.parseInt(params.get("c").get(0)));
+        }
+
+        if (params.containsKey("record")) {
+            recording = new GameRecorder.Settings(Path.of(params.get("record").get(0)), params.get("batch").get(0), seed,
+                    parseTurnCap(params.get("turncap")), seats);
         }
 
         sb.append(" - ").append(Lang.nounWithNumeral(nGames, "game")).append(" of ").append(type);
@@ -283,6 +335,85 @@ public class SimulateMatch {
         }
     }
 
+    /** The turns a -turncap value allows, the default if the flag was left out, or 0 if it isn't a whole number above zero. */
+    static int parseTurnCap(List<String> values) {
+        if (values == null) {
+            return DEFAULT_TURN_CAP;
+        }
+        return parseSearchBudget(values);
+    }
+
+    /** Why these options can't write game records, or null if they can or don't ask to. */
+    static String recordOptionsProblem(Map<String, List<String>> params) {
+        if (!params.containsKey("record")) {
+            return params.containsKey("batch") || params.containsKey("turncap") ? "-batch and -turncap need -record" : null;
+        }
+        if (params.get("record").size() != 1) {
+            return "-record takes one folder";
+        }
+        List<String> batch = params.get("batch");
+        if (batch == null || batch.size() != 1 || !batch.get(0).matches("[A-Za-z0-9_-]+")) {
+            return "-record needs -batch with one id of letters, digits, _ and -";
+        }
+        if (params.containsKey("t")) {
+            // simulateSingleMatch also plays tournaments, which have no fixed pair of seats to record
+            return "-record cannot be used with -t";
+        }
+        if (!isRecordableSeed(params.get("s"))) {
+            return "-record needs -s with a whole number of 0 or more, because a game record names its seed";
+        }
+        List<String> decks = params.get("d");
+        if (decks == null || decks.size() != 2) {
+            return "-record needs two decks, because a game record has two seats";
+        }
+        if (parseTurnCap(params.get("turncap")) == 0) {
+            return "-turncap takes a whole number of turns above zero: " + params.get("turncap");
+        }
+        return null;
+    }
+
+    /** Why -tripwire can't be used, or null if it can or wasn't asked for. */
+    static String tripwireOptionProblem(Map<String, List<String>> params) {
+        List<String> values = params.get("tripwire");
+        if (values == null) {
+            return null;
+        }
+        if (!(List.of("on").equals(values) || List.of("off").equals(values))) {
+            return "-tripwire takes on or off: " + values;
+        }
+        // a tournament's players don't go through the seats set up here, so no decision of theirs would be marked
+        return params.containsKey("t") ? "-tripwire cannot be used with -t" : null;
+    }
+
+    /** Why -honest can't be used, or null if it can or wasn't asked for. It works without -record, on public cards only. */
+    static String honestOptionProblem(Map<String, List<String>> params) {
+        List<String> values = params.get("honest");
+        if (values == null) {
+            return null;
+        }
+        if (!(List.of("on").equals(values) || List.of("off").equals(values))) {
+            return "-honest takes on or off: " + values;
+        }
+        // simulateSingleMatch also plays tournaments, and a tournament's players don't go through the seats set up here
+        return params.containsKey("t") ? "-honest cannot be used with -t" : null;
+    }
+
+    /** On for every forge sim run but a tournament, with or without records. Default play outside forge sim has none. */
+    static boolean tripwireOn(Map<String, List<String>> params) {
+        return !params.containsKey("t") && !List.of("off").equals(params.get("tripwire"));
+    }
+
+    private static boolean isRecordableSeed(List<String> values) {
+        if (values == null || values.size() != 1) {
+            return false;
+        }
+        try {
+            return Long.parseLong(values.get(0)) >= 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     /** True if any -sim value is a mode that searches. Null means the flag was left out. */
     static boolean anySeatSearches(List<String> simModes) {
         return simModes != null && (simModes.contains(SIM_MODE_HYBRID) || simModes.contains(SIM_MODE_FULL));
@@ -303,7 +434,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -317,6 +448,11 @@ public class SimulateMatch {
         System.out.println("\tA - AI profile per player, in the same order as the decks (e.g. -a Default Experimental)");
         System.out.println("\tSIM - Simulation mode per player, in the same order as the decks: heuristic, hybrid or full (e.g. -sim full heuristic). Players left out and runs without the flag stay heuristic. With the flag, result lines name each player's mode as [sim=mode]. Not for tournaments.");
         System.out.println("\tB - Search steps per AI decision. Replaces the wall-clock limit on AI decisions with a count, so that a run replays from its seed on a busy machine too. A full sim decision that runs out plays the best line it found, and passes if that is no better than passing. A heuristic seat has no search to run out.");
+        System.out.println("\tDIR - Write one game record per game to this folder. Needs -batch, -s and two decks. Not for tournaments.");
+        System.out.println("\tID - Batch id for the game records: letters, digits, _ and -.");
+        System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
+        System.out.println("\ttripwire - Catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in Tripwire lines before each result, and in the game record with -record. Not for tournaments.");
+        System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
@@ -338,6 +474,11 @@ public class SimulateMatch {
             g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
         }
         g1.AI_SIM_SEARCH = simSearch;
+        g1.AI_HONEST_PLAY = honest;
+        if (tripwire) {
+            g1.HIDDEN_READ_WATCH = new HiddenReadWatch();
+        }
+        final GameRecorder recorder = recording == null ? null : GameRecorder.attach(g1, recording, 1 + iGame);
         final long expiriesBefore = AITimeoutTracker.deadlineExpiries();
         final long stopsBefore = AITimeoutTracker.budgetStops();
         final long drawsBefore = MyRandom.callCount();
@@ -353,13 +494,29 @@ public class SimulateMatch {
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             System.out.println("Stopping slow match as draw");
+            if (recorder != null) {
+                recorder.stoppedBy(GameRecorder.Stop.CLOCK);
+            }
         } catch (Exception | StackOverflowError e) {
             e.printStackTrace();
+            if (recorder != null) {
+                recorder.stoppedBy(GameRecorder.Stop.EXCEPTION);
+            }
         } finally {
             if (sw.isStarted()) {
                 sw.stop();
             }
+            if (recorder != null) {
+                recorder.beforeForcedEnd();
+            }
             g1.setGameOver(GameEndReason.Draw);
+        }
+        if (recorder != null) {
+            recorder.finish();
+        }
+        GameRecorder.tripwireLines(g1).forEach(System.out::println);
+        if (recorder != null && recorder.stoppedAtTurnCap()) {
+            System.out.println(TURN_CAP_LINE);
         }
 
         List<GameLogEntry> log;

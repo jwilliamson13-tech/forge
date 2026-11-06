@@ -14,6 +14,7 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     private String aiProfile = "";
     private boolean rotateProfileEachGame;
     private AIOption option;
+    private boolean scopedDecisions = false;
 
     public LobbyPlayerAi(String name, Set<AIOption> options) {
         super(name);
@@ -34,8 +35,14 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
         this.rotateProfileEachGame = rotateProfileEachGame;
     }
 
+    /** Set by forge sim before the game exists, because a game builds its players in its constructor. */
+    public void setScopedDecisions(boolean scopedDecisions) {
+        this.scopedDecisions = scopedDecisions;
+    }
+
     private PlayerControllerAi createControllerFor(Player ai) {
-        PlayerControllerAi result = new PlayerControllerAi(ai.getGame(), ai, this);
+        PlayerControllerAi result = scopedDecisions ? new ScopedPlayerControllerAi(ai.getGame(), ai, this)
+                : new PlayerControllerAi(ai.getGame(), ai, this);
         result.getAi().setUseSimulation(option);
         return result;
     }

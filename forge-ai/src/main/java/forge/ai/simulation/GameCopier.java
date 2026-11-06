@@ -284,6 +284,7 @@ public class GameCopier {
         newGame.EXPERIMENTAL_RESTORE_SNAPSHOT = origGame.EXPERIMENTAL_RESTORE_SNAPSHOT;
         newGame.AI_TIMEOUT = origGame.AI_TIMEOUT;
         newGame.AI_SIM_SEARCH = origGame.AI_SIM_SEARCH;
+        newGame.AI_HONEST_PLAY = origGame.AI_HONEST_PLAY;
         newGame.setAge(origGame.getAge());
 
         // TODO countersAddedThisTurn

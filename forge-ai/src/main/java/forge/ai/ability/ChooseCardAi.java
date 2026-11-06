@@ -52,7 +52,7 @@ public class ChooseCardAi extends SpellAbilityAi {
         } else {
             choiceZone = Lists.newArrayList(ZoneType.Battlefield);
         }
-        CardCollectionView choices = game.getCardsIn(choiceZone);
+        CardCollectionView choices = HonestPlay.seenInAnySeat(ai, choiceZone);
 
         if (sa.hasParam("Choices")) {
             choices = CardLists.getValidCards(choices, sa.getParam("Choices"), host.getController(), host, sa);
@@ -88,7 +88,7 @@ public class ChooseCardAi extends SpellAbilityAi {
             final int loyalty = host.getCounters(CounterEnumType.LOYALTY) - 1;
             for (int i = loyalty; i >= 0; i--) {
                 sa.setXManaCostPaid(i);
-                choices = game.getCardsIn(choiceZone);
+                choices = HonestPlay.seenInAnySeat(ai, choiceZone);
                 choices = CardLists.getValidCards(choices, sa.getParam("Choices"), host.getController(), host, sa);
                 if (!choices.isEmpty()) {
                     return true;
