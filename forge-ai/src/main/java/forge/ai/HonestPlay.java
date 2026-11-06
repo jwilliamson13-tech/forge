@@ -198,6 +198,6 @@ public final class HonestPlay {
 
     private static List<RevealLog.Entry> entries(final Player viewer) {
         final RevealLog log = viewer.getGame().REVEAL_LOG;
-        return log == null ? List.of() : log.knownTo(viewer);
+        return log == null ? List.of() : log.writtenDown(viewer);
     }
 }

@@ -59,9 +59,23 @@ public final class RevealLog {
     /** What {@code viewer} has on the notepad right now, by card id. */
     public synchronized List<Entry> knownTo(final Player viewer) {
         addStandingLooks(viewer);
+        return writtenDown(viewer);
+    }
+
+    /**
+     * {@link #knownTo} without looking for new standing looks, which means reading every hidden card. Mana code asks this
+     * on every payment it tests, and the recorder has already called {@link #knownTo} at the last priority pass.
+     */
+    public synchronized List<Entry> writtenDown(final Player viewer) {
         final TreeMap<Integer, Entry> entries = entries(viewer);
-        entries.values().removeIf(entry -> isShowing(game.getCardState(entry.card()), viewer));
+        entries.values().removeIf(entry -> !isStillHidden(entry.card()) && isShowing(game.getCardState(entry.card()), viewer));
         return new ArrayList<>(entries.values());
+    }
+
+    /** A card that hasn't left its hidden zone can't be showing. This saves {@code Game.getCardState} walking the game. */
+    private static boolean isStillHidden(final Card card) {
+        final Zone zone = card.getZone();
+        return zone != null && zone.getZoneType().isHidden() && zone.contains(card);
     }
 
     private TreeMap<Integer, Entry> entries(final Player viewer) {
