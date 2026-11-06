@@ -5,6 +5,7 @@ import com.google.common.collect.Iterables;
 import forge.ai.AiAbilityDecision;
 import forge.ai.AiPlayDecision;
 import forge.ai.ComputerUtilCard;
+import forge.ai.HonestPlay;
 import forge.ai.SpellAbilityAi;
 import forge.game.card.Card;
 import forge.game.card.CardCollectionView;
