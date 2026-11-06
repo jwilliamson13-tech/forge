@@ -514,7 +514,9 @@ public class SpecialCardAi {
                 return null;
             }
 
-            return nameToScore.entrySet().stream().max(Map.Entry.comparingByValue()).get().getKey();
+            final Map.Entry<String, Integer> best = nameToScore.entrySet().stream().max(Map.Entry.comparingByValue()).get();
+            // seeing nothing worth naming is ordinary before the opponent has played much, and the AI's own cards score below zero
+            return honest && best.getValue() <= 0 ? null : best.getKey();
         }
     }
 
