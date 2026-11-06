@@ -93,6 +93,12 @@ public final class HonestPlay {
         return cards;
     }
 
+    /** What a question about the opponents' cards goes by: {@link #knownOpponentCards}, or outside honest play all they control. */
+    public static CardCollection opponentCards(final Player viewer) {
+        return on(viewer) ? knownOpponentCards(viewer)
+                : CardLists.filterControlledBy(viewer.getGame().getCardsInGame(), viewer.getOpponents());
+    }
+
     /**
      * Cards of the opponents that {@code viewer} may play from a hidden zone. A person can only play a card they can see,
      * so these come off the notepad, where a library top the rules let them look at also goes.

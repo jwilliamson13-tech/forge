@@ -1402,8 +1402,7 @@ public class PlayerControllerAi extends PlayerController {
         if (logic == null || logic.equals("MostProminentHumanCreatures")) {
             CardCollection list = player.getOpponents().getCreaturesInPlay();
             if (list.isEmpty()) {
-                list = HonestPlay.on(player) ? HonestPlay.knownOpponentCards(player)
-                        : CardLists.filterControlledBy(getGame().getCardsInGame(), player.getOpponents());
+                list = HonestPlay.opponentCards(player);
             }
             if (!list.isEmpty()) {
                 choice = ComputerUtilCard.getMostProminentColor(list);
@@ -1807,8 +1806,7 @@ public class PlayerControllerAi extends PlayerController {
                 return name;
             }
         } else {
-            CardCollectionView list = HonestPlay.on(player) ? HonestPlay.knownOpponentCards(player)
-                    : CardLists.filterControlledBy(getGame().getCardsInGame(), player.getOpponents());
+            CardCollectionView list = HonestPlay.opponentCards(player);
             list = CardLists.filter(list, CardPredicates.NON_LANDS);
             if (!list.isEmpty()) {
                 return list.get(0).getName();
