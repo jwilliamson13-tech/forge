@@ -68,8 +68,9 @@ public class ClashAi extends SpellAbilityAi {
                 return p;
         }
 
+        // no one can see the top of an opponent's library, so honest play has no comparison to make
     	CardCollectionView col = ai.getCardsIn(ZoneType.Library);
-        if (!col.isEmpty() && col.getFirst().mayPlayerLook(ai)) {
+        if (!HonestPlay.on(ai) && !col.isEmpty() && col.getFirst().mayPlayerLook(ai)) {
             final Card top = col.get(0);
             for (Player p : options) {
                 final Card oppTop = p.getCardsIn(ZoneType.Library).getFirst();
