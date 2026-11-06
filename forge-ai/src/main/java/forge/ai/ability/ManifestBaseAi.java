@@ -15,6 +15,7 @@ import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.util.MyRandom;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -88,7 +89,7 @@ public abstract class ManifestBaseAi extends SpellAbilityAi {
             if (sa.hasParam("ChoiceZone")) {
                 choiceZone = ZoneType.smartValueOf(sa.getParam("ChoiceZone"));
             }
-            CardCollection choices = new CardCollection(game.getCardsIn(choiceZone));
+            CardCollection choices = new CardCollection(HonestPlay.seenInAnySeat(ai, List.of(choiceZone)));
             if (sa.hasParam("Choices")) {
                 choices = CardLists.getValidCards(choices, sa.getParam("Choices"), ai, host, sa);
             }

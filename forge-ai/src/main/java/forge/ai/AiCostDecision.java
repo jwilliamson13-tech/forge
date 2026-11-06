@@ -411,7 +411,7 @@ public class AiCostDecision extends CostDecisionMakerBase {
         CardCollectionView list;
 
         if (cost.isSameZone()) {
-            list = game.getCardsIn(cost.getFrom());
+            list = HonestPlay.seenInAnySeat(player, List.of(cost.getFrom()));
         } else {
             list = player.getCardsIn(cost.getFrom());
         }
