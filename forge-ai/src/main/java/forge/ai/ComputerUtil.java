@@ -1577,13 +1577,16 @@ public class ComputerUtil {
         final CardCollection all = new CardCollection(defender.getCardsIn(ZoneType.Battlefield));
 
         all.addAll(defender.getCardsActivatableInExternalZones(true));
+        final boolean honest = HonestPlay.on(ai);
         // TODO check if cards can be viewed instead
-        if (!checkingOther) {
+        if (!checkingOther && (!honest || defender.equals(ai))) {
             all.addAll(defender.getCardsIn(ZoneType.Hand));
         }
 
-        Set<Card> revealed = AiCardMemory.getMemorySet(ai, MemorySet.REVEALED_CARDS);
-        if (revealed != null) {
+        Set<Card> revealed = honest ? null : AiCardMemory.getMemorySet(ai, MemorySet.REVEALED_CARDS);
+        if (honest) {
+            all.addAll(HonestPlay.rememberedIn(ai, defender, ZoneType.Hand));
+        } else if (revealed != null) {
             for (Card c : revealed) {
                 // if the card moved to a hidden zone depending on the circumstances the AI could not have noticed...?
                 if (c.isInZone(ZoneType.Hand) && c.getOwner() == defender) {
