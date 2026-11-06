@@ -1968,8 +1968,12 @@ public class ChangeZoneAi extends SpellAbilityAi {
                 // this assumes that the deck list is known to the AI before the match starts,
                 // so it's possible to figure out what remains in library/hand if you know what's
                 // in graveyard, exile, etc.
-                scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Library));
-                scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Hand));
+                if (HonestPlay.on(aiPlayer)) {
+                    scanList.addAll(HonestPlay.knownOpponentCards(aiPlayer));
+                } else {
+                    scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Library));
+                    scanList.addAll(aiPlayer.getOpponents().getCardsIn(ZoneType.Hand));
+                }
             }
 
             if (logic.contains("NonLand")) {
