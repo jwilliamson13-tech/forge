@@ -81,6 +81,21 @@ public final class HonestPlay {
         return cards;
     }
 
+    /**
+     * Cards of the opponents that {@code viewer} may play from a hidden zone. A person can only play a card they can see,
+     * so these come off the notepad, where a library top the rules let them look at also goes.
+     */
+    public static CardCollection playableUnseen(final Player viewer) {
+        final CardCollection cards = new CardCollection();
+        for (final RevealLog.Entry entry : entries(viewer)) {
+            final Card current = viewer.getGame().getCardState(entry.card());
+            if (!current.mayPlay(viewer).isEmpty()) {
+                cards.add(current);
+            }
+        }
+        return cards;
+    }
+
     /** False for a face-down card this viewer isn't allowed to turn over. */
     public static boolean canNameIt(final Player viewer, final Card c) {
         return !c.isFaceDown() || c.getView().canFaceDownBeShownTo(viewer.getView());

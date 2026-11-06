@@ -73,10 +73,14 @@ public class ComputerUtilAbility {
         CardCollection all = new CardCollection(player.getCardsIn(ZoneType.Hand));
 
         all.addAll(player.getCardsIn(ZoneType.Graveyard));
+        final boolean honest = HonestPlay.on(game);
         for (Player p : game.getPlayers()) {
-            if (!p.getCardsIn(ZoneType.Library).isEmpty()) {
+            if (!p.getCardsIn(ZoneType.Library).isEmpty() && (!honest || p.equals(player))) {
                 all.add(p.getCardsIn(ZoneType.Library).get(0));
             }
+        }
+        if (honest) {
+            all.addAll(HonestPlay.playableUnseen(player));
         }
         all.addAll(IterableUtil.filter(player.getCardsIn(ZoneType.Command), c -> !c.isImmutable() || c.isEmblem()));
         all.addAll(game.getCardsIn(ZoneType.Exile));
