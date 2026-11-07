@@ -26,6 +26,7 @@ import forge.game.ability.ApiType;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.card.CardCollectionView;
+import forge.game.cost.Cost;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.player.PlayerCollection;
@@ -154,6 +155,46 @@ public class PeekFixesTest extends AITest {
         watch.enter(opp);
         assertTrue(ComputerUtilMana.getAvailableManaSources(opp, true).contains(guide));
         watch.exit(opp);
+        assertNoHits();
+    }
+
+    /** The opponent's spell targets the AI's creature with Ward, so the AI asks whether the opponent will pay. */
+    private SpellAbility boltAtSquelcher() {
+        final Card squelcher = addCardToZone("Hexing Squelcher", ai, ZoneType.Battlefield);
+        final SpellAbility bolt = addCardToZone("Lightning Bolt", opp, ZoneType.Hand).getFirstSpellAbility();
+        bolt.setActivatingPlayer(opp);
+        bolt.getTargets().add(squelcher);
+        return bolt;
+    }
+
+    @Test
+    public void aWardCheckForTheOpponentLeavesTheirHandAlone() {
+        startGame(true);
+        addCardToZone("Mountain", opp, ZoneType.Hand);
+        ComputerUtilCost.canPayCost(boltAtSquelcher(), opp, false);
+        assertNoHits();
+    }
+
+    @Test
+    public void withTheFlagOffTheWardCheckReadsTheHand() {
+        startGame(false);
+        addCardToZone("Mountain", opp, ZoneType.Hand);
+        ComputerUtilCost.canPayCost(boltAtSquelcher(), opp, false);
+        assertTrue(watch.hitsBySignature().toString(),
+                watch.hitsBySignature().keySet().stream().anyMatch(s -> s.contains("ComputerUtilCost.checkDiscardCost:")));
+    }
+
+    @Test
+    public void anOpponentsDiscardCostGoesByTheHandSeen() {
+        startGame(true);
+        final Card squee = addCardToZone("Squee, Goblin Nabob", opp, ZoneType.Hand);
+        final Card source = addCardToZone("Lightning Bolt", opp, ZoneType.Hand);
+        final SpellAbility sa = source.getFirstSpellAbility();
+        sa.setActivatingPlayer(opp);
+        final Cost discard = new Cost("Discard<1/Card>", false);
+        assertFalse("nothing seen in their hand to throw away", ComputerUtilCost.checkDiscardCost(opp, discard, source, sa));
+        reveal(squee);
+        assertTrue("Squee was shown, and it wants discarding", ComputerUtilCost.checkDiscardCost(opp, discard, source, sa));
         assertNoHits();
     }
 

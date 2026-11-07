@@ -438,7 +438,10 @@ public class ComputerUtil {
             }
         }
         else if (pref.contains("DiscardCost")) { // search for permanents with DiscardMe
-            if (ai.getController() instanceof PlayerControllerAi) {
+            // a deck plan reads the whole library, so only the player deciding gets one for itself
+            final Player decider = ai.getGame().AI_DECIDERS.current();
+            if (ai.getController() instanceof PlayerControllerAi
+                    && (!HonestPlay.on(ai) || decider == null || decider.equals(ai))) {
                 final Card madness = ((PlayerControllerAi) ai.getController()).getAi().deckPlan(ai).combos
                         .madnessDiscard(ai, typeList);
                 if (madness != null) {
