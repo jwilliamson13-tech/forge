@@ -145,7 +145,8 @@ public class ComputerUtilCost {
             return true;
         }
 
-        CardCollection hand = new CardCollection(ai.getCardsIn(ZoneType.Hand));
+        // the payer may be an opponent, as in a Ward check on the AI's own creature, so go by the hand as the decider knows it
+        CardCollection hand = new CardCollection(HonestPlay.handAsKnown(ai));
 
         for (final CostPart part : cost.getCostParts()) {
             if (part instanceof CostDiscard disc) {
