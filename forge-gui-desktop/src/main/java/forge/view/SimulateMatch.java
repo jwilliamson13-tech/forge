@@ -296,6 +296,8 @@ public class SimulateMatch {
                 // a seat's evaluator that draws gets its own stream from the run's seed, so the run still replays
                 ((LobbyPlayerAi) player).setSearchScorer(
                         Evaluators.scorer(evaluator, seed == null ? null : Evaluators.seatSeed(seed, i)));
+                // -Dforge.onnx.bundle puts this seat's search on the learned evaluator, until #23's flag takes over
+                OnnxSeats.configure(i, (LobbyPlayerAi) player);
                 rp.setPlayer(player);
                 pp.add(rp);
                 // the budget is one value for the run, and a heuristic seat has no search to spend it on
