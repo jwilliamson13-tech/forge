@@ -80,11 +80,11 @@ public class GameStateEvaluator {
     // worth less than a win this turn, and a loss we can put off is better than one we cannot.
     // GameSimulator returns Integer.MIN_VALUE to mean "this line could not be simulated", so the
     // very bottom of the range is left alone and a real loss is scored just above it.
-    private static final int GAME_OVER_TURN_PENALTY = 1000;
+    static final int GAME_OVER_TURN_PENALTY = 1000;
     // A suspended card is still a card to come, and its cost is paid, so it is worth a point more than the 5 of a card in
     // hand. Without this, suspending only ever looks like losing a card. Only forge sim counts it.
     private static final int SUSPENDED_CARD_VALUE = 6;
-    private static final int MAX_DISCOUNTED_TURNS = 1000000;
+    static final int MAX_DISCOUNTED_TURNS = 1000000;
 
     /** True for any score that means the AI has won, however far off that win is. */
     public static boolean isWinning(int score) {
