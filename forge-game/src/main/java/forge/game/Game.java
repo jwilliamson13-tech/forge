@@ -107,14 +107,19 @@ public class Game {
     // simulated games, so that a search scores and retries the same way at every depth.
     public boolean AI_SIM_SEARCH = false;
     // What each player has been shown of the opponent's hidden cards, for the whole game. Null unless forge sim set it,
-    // so default play has no log at all. Never copied: a reveal in a simulated game didn't happen.
+    // so default play has no log at all. Never copied: a reveal in a simulated game didn't happen. A pruned copy gets a
+    // log of its own, holding only what the searching AI had written down (see AI_PRUNE_HIDDEN_INFO).
     public RevealLog REVEAL_LOG = null;
     // The hidden-information tripwire. Null unless forge sim set it, so default play pays one null check per zone read.
-    // Never copied: reads on a copy the AI searches on see the copy, and copying the real game is issue 25's concern.
+    // Never copied: reads on a copy the AI searches on see the copy. GameCopier checks what it put in each copy instead.
     public HiddenReadWatch HIDDEN_READ_WATCH = null;
     // Whether AI players keep to what a person in their seat could know. False unless forge sim asked for it, so default
-    // play keeps its peeks. Copied to simulated games, so the AI thinks the same way on a copy, where it has no REVEAL_LOG.
+    // play keeps its peeks. Copied to simulated games, so the AI thinks the same way on a copy.
     public boolean AI_HONEST_PLAY = false;
+    // Whether the copies an AI searches on hold only what that AI could know of the other players' hidden cards (issue
+    // 25). False unless forge sim set it, which it does by default when a seat searches. Copied to simulated games, so a
+    // copy of a copy is pruned the same way.
+    public boolean AI_PRUNE_HIDDEN_INFO = false;
     // Which AI seat is deciding. Each game has its own, including copies. Empty unless forge sim scopes the controllers.
     public final DecisionStack AI_DECIDERS = new DecisionStack();
     // Whether heuristic AI players may refine their main phase choices with flat Monte Carlo rollouts.

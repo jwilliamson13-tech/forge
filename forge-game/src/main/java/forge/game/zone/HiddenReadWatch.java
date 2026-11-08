@@ -23,7 +23,8 @@ import forge.game.player.Player;
  * real side of a face-down card that player may not see.
  * <p>
  * Only forge sim makes one, so {@link Game#HIDDEN_READ_WATCH} is null in default play, and in the copies the AI searches
- * on, which is why reads on a copy never count. {@code ScopedPlayerControllerAi} says who is deciding through
+ * on, which is why reads on a copy never count. GameCopier checks what it put in each copy of the real game instead,
+ * through {@link #copyChecked}. {@code ScopedPlayerControllerAi} says who is deciding through
  * {@link Game#AI_DECIDERS}, on every controller call, so a choice made while a spell resolves has a decider too.
  * <p>
  * Who asked and what they did are separate questions, answered at different times. Who asked is settled when the zone
@@ -43,7 +44,7 @@ public final class HiddenReadWatch {
 
     private static final int SIGNATURE_FRAMES = 3;
     private static final String AI_PACKAGE = "forge.ai.";
-    /** Copying a real game has to read it. Issue 25 owns what a search then sees on the copy. */
+    /** Copying a real game has to read it. What it put in the copy is checked by {@link #copyChecked}. */
     private static final String GAME_COPIER = "forge.ai.simulation.GameCopier";
     /** Its frames only say a decision is open, so they would crowd out the ones that say which. */
     private static final String SCOPED_CONTROLLER = "forge.ai.ScopedPlayerControllerAi";
@@ -63,7 +64,27 @@ public final class HiddenReadWatch {
             "forge.game.card.Card.getState", "forge.game.card.Card.getOriginalState", "forge.game.card.Card.getPaperCard",
             "forge.game.card.Card.getRules", "forge.game.card.Card.noteFaceDownRead");
 
+    /** Starts a signature of a copy made for a search that held a hidden card its searching AI couldn't know. */
+    public static final String COPY = "copy: ";
+
     private final Map<String, Integer> hits = new TreeMap<>();
+    private int copiesChecked = 0;
+
+    /**
+     * GameCopier made a copy of this game for a search and checked what it holds. Each of {@code leaks} is a place in that
+     * copy, such as {@code Hand}, that held a card the searching AI couldn't know, and counts one hit for this copy.
+     */
+    public synchronized void copyChecked(final Collection<String> leaks) {
+        copiesChecked++;
+        for (final String place : leaks) {
+            hit(COPY + place);
+        }
+    }
+
+    /** How many copies of this game GameCopier checked. Reads on a copy never count, and this is what covers them. */
+    public synchronized int copiesChecked() {
+        return copiesChecked;
+    }
 
     /** {@code player} starts a decision. The stack is the game's, because honest play needs it with the tripwire off. */
     public void enter(final Player player) {

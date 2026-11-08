@@ -42,6 +42,51 @@ public class EvaluatorsTest extends SimulationTest {
     }
 
     @Test
+    public void aRegisteredFamilyTakesItsPrefixedNames() {
+        List<String> asked = new ArrayList<>();
+        Evaluators.register("fake", "ARG", (argument, seed) -> {
+            if (argument.equals("bad")) {
+                throw new IllegalArgumentException("no such thing");
+            }
+            asked.add(argument + "/" + seed);
+            return SearchScorer.FORGE;
+        });
+        try {
+            AssertJUnit.assertSame(SearchScorer.FORGE, Evaluators.scorer("fake:a:b", 3L));
+            AssertJUnit.assertEquals(List.of("a:b/3"), asked);
+            AssertJUnit.assertEquals("fake", Evaluators.family("fake:a:b"));
+            AssertJUnit.assertEquals(Evaluators.NAMES, Evaluators.names().subList(0, Evaluators.NAMES.size()));
+            AssertJUnit.assertTrue(Evaluators.names().contains("fake:ARG"));
+            AssertJUnit.assertNull(Evaluators.problem("fake:x"));
+            AssertJUnit.assertEquals("-eval fake:bad can't be used: no such thing", Evaluators.problem("fake:bad"));
+            AssertJUnit.assertEquals("-eval fake: can't be used: fake: names no ARG", Evaluators.problem("fake:"));
+            // the prefix alone, and a prefix nobody registered, are no names
+            AssertJUnit.assertNull(Evaluators.scorer("fake", null));
+            AssertJUnit.assertNull(Evaluators.scorer("other:x", null));
+            AssertJUnit.assertEquals("other:x", Evaluators.family("other:x"));
+            String unknown = Evaluators.problem("other:x");
+            AssertJUnit.assertTrue(unknown, unknown.startsWith("Unknown evaluator - other:x. Available evaluators: forge, random, passthrough"));
+            AssertJUnit.assertTrue(unknown, unknown.contains("fake:ARG"));
+        } finally {
+            Evaluators.unregister("fake");
+        }
+        AssertJUnit.assertNull(Evaluators.scorer("fake:x", null));
+        AssertJUnit.assertFalse(Evaluators.names().contains("fake:ARG"));
+    }
+
+    @Test
+    public void aFamilyCantTakeABuiltInNameOrAColon() {
+        for (String prefix : List.of("random", "a:b", "")) {
+            try {
+                Evaluators.register(prefix, "X", (argument, seed) -> SearchScorer.FORGE);
+                AssertJUnit.fail("registered " + prefix);
+            } catch (IllegalArgumentException expected) {
+                // refused
+            }
+        }
+    }
+
+    @Test
     public void eachSeatGetsItsOwnSeed() {
         long run = 42;
         AssertJUnit.assertTrue(Evaluators.seatSeed(run, 1) != Evaluators.seatSeed(run, 2));

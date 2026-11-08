@@ -255,13 +255,20 @@ public final class GameRecorder {
         return tripwire;
     }
 
-    /** A game's tripwire result for stdout, which also covers a game that gets no file. Empty with the tripwire off. */
+    /**
+     * A game's tripwire result for stdout, which also covers a game that gets no file. Empty with the tripwire off. Its hits
+     * include the copies made for a search, and a game that searched says how many copies were checked.
+     */
     public static List<String> tripwireLines(final Game game) {
         final HiddenReadWatch watch = game.HIDDEN_READ_WATCH;
         final List<String> printed = new ArrayList<>();
         if (watch != null) {
             printed.add("Tripwire: " + watch.hitCount() + " hits");
             watch.hitsBySignature().forEach((signature, hits) -> printed.add("Tripwire hit: " + hits + " " + signature));
+            // only a game that searches makes copies, so other games print what they always did
+            if (game.AI_SIM_SEARCH || watch.copiesChecked() > 0) {
+                printed.add("Tripwire copies: " + watch.copiesChecked() + " checked");
+            }
         }
         return printed;
     }

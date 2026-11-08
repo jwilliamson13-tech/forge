@@ -1,0 +1,37 @@
+{
+ "numeric_keys": {
+  "<unk>": 1.0,
+  "generic": 0.5,
+  "power": 2.0,
+  "toughness": 2.0,
+  "NumDmg": 3.0,
+  "pip.R": 1.0,
+  "pip.U": 1.0,
+  "DividedAsYouChoose": 1.0,
+  "TargetMax": 1.0,
+  "TargetMin": 1.0,
+  "pip.G": 1.0,
+  "pip.W": 1.0
+ },
+ "scoreboard": {
+  "me_life": 20,
+  "opp_life": 20,
+  "me_poison": 10,
+  "opp_poison": 10,
+  "me_library": 60,
+  "opp_library": 60,
+  "opp_hand": 7,
+  "turn": 20,
+  "me_active": 1,
+  "me_on_play": 1
+ },
+ "live": {
+  "power": 5,
+  "toughness": 5,
+  "damage": 5,
+  "counters_p1p1": 5,
+  "counters_m1m1": 5,
+  "counters_loyalty": 5,
+  "counters_other": 5
+ }
+}
