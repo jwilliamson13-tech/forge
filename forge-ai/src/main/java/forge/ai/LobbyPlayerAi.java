@@ -3,6 +3,7 @@ package forge.ai;
 import java.util.Set;
 
 import forge.LobbyPlayer;
+import forge.ai.simulation.SearchScorer;
 import forge.game.Game;
 import forge.game.player.IGameEntitiesFactory;
 import forge.game.player.Player;
@@ -15,6 +16,7 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     private boolean rotateProfileEachGame;
     private AIOption option;
     private boolean scopedDecisions = false;
+    private SearchScorer searchScorer;
 
     public LobbyPlayerAi(String name, Set<AIOption> options) {
         super(name);
@@ -38,6 +40,19 @@ public class LobbyPlayerAi extends LobbyPlayer implements IGameEntitiesFactory {
     /** Set by forge sim before the game exists, because a game builds its players in its constructor. */
     public void setScopedDecisions(boolean scopedDecisions) {
         this.scopedDecisions = scopedDecisions;
+    }
+
+    /** What the simulation search of this player scores states with, or null for Forge's own evaluator. */
+    public SearchScorer getSearchScorer() {
+        return searchScorer;
+    }
+
+    /**
+     * Set before the game exists, like the simulation mode. The search's copies of the game share this lobby player,
+     * so the AIs in them score with the same scorer as the real one.
+     */
+    public void setSearchScorer(SearchScorer searchScorer) {
+        this.searchScorer = searchScorer;
     }
 
     private PlayerControllerAi createControllerFor(Player ai) {

@@ -21,7 +21,10 @@ public class GameSimulator {
     private GameCopier copier;
     private Game simGame;
     private Player aiPlayer;
+    /** Forge's evaluator, for checking the copy against the original, which is a check of the copier and not of the scorer. */
     private GameStateEvaluator eval;
+    /** What the search scores with. Only the full constructor asks the player for it; the others use Forge's. */
+    private SearchScorer scorer = SearchScorer.FORGE;
     private List<String> origLines;
     private Score origScore;
     private SpellAbilityChoicesIterator interceptor;
@@ -48,12 +51,13 @@ public class GameSimulator {
 
         aiPlayer = copier.find(origAiPlayer);
         eval = new GameStateEvaluator();
+        scorer = SearchScorer.of(origAiPlayer);
 
         origLines = new ArrayList<>();
         debugLines = origLines;
 
         debugPrint = false;
-        origScore = eval.getScoreForGameState(origGame, origAiPlayer);
+        origScore = scorer.score(origGame, origAiPlayer);
 
         if (advanceToPhase == null && CHECK_GAME_COPY_SCORE) {
             ensureGameCopyScoreMatches(origGame, origAiPlayer);
@@ -68,7 +72,7 @@ public class GameSimulator {
             Game copyOrigGame = copier.makeCopy();
             Player copyOrigAiPlayer = copyOrigGame.getPlayers().get(1);
             resolveStack(copyOrigGame, copyOrigGame.getPlayers().get(0));
-            origScore = eval.getScoreForGameState(copyOrigGame, copyOrigAiPlayer);
+            origScore = scorer.score(copyOrigGame, copyOrigAiPlayer);
         }
 
         debugPrint = false;
@@ -130,11 +134,12 @@ public class GameSimulator {
     }
 
     private void ensureGameCopyScoreMatches(Game origGame, Player origAiPlayer) {
+        Score expected = scorer == SearchScorer.FORGE ? origScore : eval.getScoreForGameState(origGame, origAiPlayer);
         eval.setDebugging(true);
         List<String> simLines = new ArrayList<>();
         debugLines = simLines;
         Score simScore = eval.getScoreForGameState(simGame, aiPlayer);
-        if (!simScore.equals(origScore)) {
+        if (!simScore.equals(expected)) {
             // Re-eval orig with debug printing.
             origLines = new ArrayList<>();
             debugLines = origLines;
@@ -230,12 +235,15 @@ public class GameSimulator {
     }
 
     public Score simulateSpellAbility(SpellAbility origSa) {
-        return simulateSpellAbility(origSa, this.eval, true);
+        return simulateSpellAbility(origSa, this.scorer, true);
     }
     public Score simulateSpellAbility(SpellAbility origSa, boolean resolve) {
-        return simulateSpellAbility(origSa, this.eval, resolve);
+        return simulateSpellAbility(origSa, this.scorer, resolve);
     }
     public Score simulateSpellAbility(SpellAbility origSa, GameStateEvaluator eval, boolean resolve) {
+        return simulateSpellAbility(origSa, eval::getScoreForGameState, resolve);
+    }
+    private Score simulateSpellAbility(SpellAbility origSa, SearchScorer scorer, boolean resolve) {
         SpellAbility sa;
         if (origSa.isLandAbility()) {
             Card hostCard = (Card) copier.find(origSa.getHostCard());
@@ -293,7 +301,7 @@ public class GameSimulator {
             debugLines = simLines;
             debugPrint = false;
         }
-        Score score = eval.getScoreForGameState(simGame, aiPlayer);
+        Score score = scorer.score(simGame, aiPlayer);
         if (simLines != null) {
             debugLines = null;
             debugPrint = true;

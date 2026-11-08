@@ -117,7 +117,7 @@ public class SpellAbilityPicker {
             return null;
         }
 
-        Score origGameScore = new GameStateEvaluator().getScoreForGameState(game, player);
+        Score origGameScore = SearchScorer.of(player).score(game, player);
         List<SpellAbility> candidateSAs = getCandidateSpellsAndAbilities();
         if (controller != null) {
             // This is a recursion during a higher-level simulation. Just return the head of the best
