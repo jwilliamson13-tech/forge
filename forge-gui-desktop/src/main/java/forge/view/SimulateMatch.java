@@ -12,6 +12,7 @@ import forge.LobbyPlayer;
 import forge.ai.AIOption;
 import forge.ai.AiProfileUtil;
 import forge.ai.LobbyPlayerAi;
+import forge.ai.simulation.Evaluators;
 import forge.ai.simulation.FlatMonteCarloStats;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
@@ -181,6 +182,12 @@ public class SimulateMatch {
         }
         honest = List.of("on").equals(params.get("honest"));
 
+        final String evalProblem = evalOptionProblem(params);
+        if (evalProblem != null) {
+            System.out.println(evalProblem);
+            return;
+        }
+
         Long seed = null;
         if (params.containsKey("s")) {
             seed = Long.parseLong(params.get("s").get(0));
@@ -243,6 +250,9 @@ public class SimulateMatch {
             }
         }
 
+        // Optional evaluator per player for the search to score states with, in the same order as the decks.
+        List<String> evaluators = params.get("eval");
+
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
                 Deck d = deckFromCommandLineParameter(deck, type, deckDir);
@@ -259,6 +269,11 @@ public class SimulateMatch {
                 if (simModes != null) {
                     // In the name, so that every result line says which mode the seat played.
                     name = TextUtil.concatNoSpace(name, " [sim=", simMode, "]");
+                }
+                String evaluator = evaluators != null && evaluators.size() >= i ? evaluators.get(i - 1) : Evaluators.FORGE;
+                if (evaluators != null) {
+                    // The proof that the evaluator took effect, as [sim=mode] is for the mode.
+                    name = TextUtil.concatNoSpace(name, " [eval=", evaluator, "]");
                 }
                 sb.append(name);
                 if (!profile.isEmpty()) {
@@ -278,6 +293,9 @@ public class SimulateMatch {
                 int sleeveIndex = sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount);
                 LobbyPlayer player = GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile);
                 ((LobbyPlayerAi) player).setScopedDecisions(tripwire || honest);
+                // a seat's evaluator that draws gets its own stream from the run's seed, so the run still replays
+                ((LobbyPlayerAi) player).setSearchScorer(
+                        Evaluators.scorer(evaluator, seed == null ? null : Evaluators.seatSeed(seed, i)));
                 rp.setPlayer(player);
                 pp.add(rp);
                 // the budget is one value for the run, and a heuristic seat has no search to spend it on
@@ -398,6 +416,38 @@ public class SimulateMatch {
         return params.containsKey("t") ? "-honest cannot be used with -t" : null;
     }
 
+    /**
+     * Why -eval can't be used, or null if it can or wasn't asked for. An evaluator other than Forge's needs its seat to
+     * search, because a heuristic seat never scores a state, and a seat that quietly played stock would skew the run.
+     */
+    static String evalOptionProblem(Map<String, List<String>> params) {
+        List<String> evaluators = params.get("eval");
+        if (evaluators == null) {
+            return null;
+        }
+        if (params.containsKey("t")) {
+            // tournament players are built elsewhere, as with -sim
+            return "-eval sets an evaluator per deck, so it cannot be used with -t";
+        }
+        if (evaluators.isEmpty()) {
+            return "-eval takes one evaluator per seat, in deck order: " + String.join(", ", Evaluators.NAMES);
+        }
+        List<String> simModes = params.get("sim");
+        for (int seat = 1; seat <= evaluators.size(); seat++) {
+            String evaluator = evaluators.get(seat - 1);
+            if (Evaluators.scorer(evaluator, null) == null) {
+                return TextUtil.concatNoSpace("Unknown evaluator - ", evaluator,
+                        ". Available evaluators: ", String.join(", ", Evaluators.NAMES));
+            }
+            String simMode = simModes != null && simModes.size() >= seat ? simModes.get(seat - 1) : SIM_MODE_HEURISTIC;
+            if (!Evaluators.FORGE.equals(evaluator) && SIM_MODE_HEURISTIC.equals(simMode)) {
+                return TextUtil.concatNoSpace("-eval ", evaluator, " needs a seat that searches, and seat ",
+                        String.valueOf(seat), " is ", SIM_MODE_HEURISTIC);
+            }
+        }
+        return null;
+    }
+
     /** On for every forge sim run but a tournament, with or without records. Default play outside forge sim has none. */
     static boolean tripwireOn(Map<String, List<String>> params) {
         return !params.containsKey("t") && !List.of("off").equals(params.get("tripwire"));
@@ -434,7 +484,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -eval [EVAL] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -453,6 +503,7 @@ public class SimulateMatch {
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
         System.out.println("\ttripwire - Catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in Tripwire lines before each result, and in the game record with -record. Not for tournaments.");
         System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
+        System.out.println("\tEVAL - Evaluator per player for the search to score states with, in the same order as the decks: forge, random or passthrough (e.g. -eval random forge). forge is Forge's own and the default. random is a uniform draw from its own generator, seeded from -s and the seat. passthrough is Forge's own score through the evaluator seam. Any but forge needs the seat to be hybrid or full. With the flag, result lines name each player's evaluator as [eval=name]. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
