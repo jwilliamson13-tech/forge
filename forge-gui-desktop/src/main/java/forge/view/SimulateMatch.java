@@ -79,6 +79,8 @@ public class SimulateMatch {
 
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
+        // -eval onnx:DIR: the ONNX evaluator lives in this module, and forge-ai's Evaluators only knows it once told
+        OnnxEvaluators.register();
 
         System.out.println("Simulation mode");
         if (args.length < 4) {
@@ -182,7 +184,10 @@ public class SimulateMatch {
         }
         honest = List.of("on").equals(params.get("honest"));
 
-        final String evalProblem = evalOptionProblem(params);
+        String evalProblem = OnnxEvaluators.retiredPropertyProblem();
+        if (evalProblem == null) {
+            evalProblem = evalOptionProblem(params);
+        }
         if (evalProblem != null) {
             System.out.println(evalProblem);
             return;
@@ -272,8 +277,9 @@ public class SimulateMatch {
                 }
                 String evaluator = evaluators != null && evaluators.size() >= i ? evaluators.get(i - 1) : Evaluators.FORGE;
                 if (evaluators != null) {
-                    // The proof that the evaluator took effect, as [sim=mode] is for the mode.
-                    name = TextUtil.concatNoSpace(name, " [eval=", evaluator, "]");
+                    // The proof that the evaluator took effect, as [sim=mode] is for the mode. A family's argument,
+                    // such as an ONNX bundle's path, stays out of the name; the ONNX seat line on stderr names it.
+                    name = TextUtil.concatNoSpace(name, " [eval=", Evaluators.family(evaluator), "]");
                 }
                 sb.append(name);
                 if (!profile.isEmpty()) {
@@ -296,8 +302,11 @@ public class SimulateMatch {
                 // a seat's evaluator that draws gets its own stream from the run's seed, so the run still replays
                 ((LobbyPlayerAi) player).setSearchScorer(
                         Evaluators.scorer(evaluator, seed == null ? null : Evaluators.seatSeed(seed, i)));
-                // -Dforge.onnx.bundle puts this seat's search on the learned evaluator, until #23's flag takes over
-                OnnxSeats.configure(i, (LobbyPlayerAi) player);
+                final String onnxFolder = OnnxEvaluators.folderOf(evaluator);
+                if (onnxFolder != null) {
+                    // the proof of which bundle the seat took, as the folder was given
+                    System.err.println("ONNX evaluator: seat " + i + " searches with " + onnxFolder);
+                }
                 rp.setPlayer(player);
                 pp.add(rp);
                 // the budget is one value for the run, and a heuristic seat has no search to spend it on
@@ -432,14 +441,15 @@ public class SimulateMatch {
             return "-eval sets an evaluator per deck, so it cannot be used with -t";
         }
         if (evaluators.isEmpty()) {
-            return "-eval takes one evaluator per seat, in deck order: " + String.join(", ", Evaluators.NAMES);
+            return "-eval takes one evaluator per seat, in deck order: " + String.join(", ", Evaluators.names());
         }
         List<String> simModes = params.get("sim");
         for (int seat = 1; seat <= evaluators.size(); seat++) {
             String evaluator = evaluators.get(seat - 1);
-            if (Evaluators.scorer(evaluator, null) == null) {
-                return TextUtil.concatNoSpace("Unknown evaluator - ", evaluator,
-                        ". Available evaluators: ", String.join(", ", Evaluators.NAMES));
+            // a name that loads something, such as an ONNX bundle, loads it here, once, so a bad one stops the run
+            String problem = Evaluators.problem(evaluator);
+            if (problem != null) {
+                return problem;
             }
             String simMode = simModes != null && simModes.size() >= seat ? simModes.get(seat - 1) : SIM_MODE_HEURISTIC;
             if (!Evaluators.FORGE.equals(evaluator) && SIM_MODE_HEURISTIC.equals(simMode)) {
@@ -505,7 +515,7 @@ public class SimulateMatch {
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
         System.out.println("\ttripwire - Catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in Tripwire lines before each result, and in the game record with -record. Not for tournaments.");
         System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
-        System.out.println("\tEVAL - Evaluator per player for the search to score states with, in the same order as the decks: forge, random or passthrough (e.g. -eval random forge). forge is Forge's own and the default. random is a uniform draw from its own generator, seeded from -s and the seat. passthrough is Forge's own score through the evaluator seam. Any but forge needs the seat to be hybrid or full. With the flag, result lines name each player's evaluator as [eval=name]. Not for tournaments.");
+        System.out.println("\tEVAL - Evaluator per player for the search to score states with, in the same order as the decks: forge, random, passthrough or onnx:DIR (e.g. -eval random forge). forge is Forge's own and the default. random is a uniform draw from its own generator, seeded from -s and the seat. passthrough is Forge's own score through the evaluator seam. onnx:DIR is the learned model in the export bundle in folder DIR, under ONNX Runtime; each folder loads once, so seats on two folders play two models, and each such seat writes 'ONNX evaluator: seat N searches with DIR' to stderr. -Dforge.onnx.threads=N gives each bundle N threads, 1 by default. Any but forge needs the seat to be hybrid or full. With the flag, result lines name each player's evaluator as [eval=name], with onnx for onnx:DIR. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
