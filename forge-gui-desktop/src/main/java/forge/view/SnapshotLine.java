@@ -39,14 +39,16 @@ final class SnapshotLine {
     private final Player opp;
     private final Combat combat;
     private final RecordIds ids;
+    private final List<RevealLog.Entry> revealedEntries;
     private final List<Card> battlefield = new ArrayList<>();
     /** Each permanent's record id, by Forge's id. What attachments and combat hold can be an older copy of the card. */
     private final Map<Integer, Integer> battlefieldIds = new HashMap<>();
 
-    private SnapshotLine(final Game game, final Player side, final RecordIds ids) {
+    private SnapshotLine(final Game game, final Player side, final RecordIds ids, final List<RevealLog.Entry> revealed) {
         this.game = game;
         this.me = side;
         this.ids = ids;
+        this.revealedEntries = revealed;
         this.opp = game.getRegisteredPlayers().stream().filter(p -> !p.equals(side)).findFirst().orElseThrow();
         this.combat = game.getCombat();
         for (final Player player : game.getRegisteredPlayers()) {
@@ -61,7 +63,15 @@ final class SnapshotLine {
     }
 
     static JsonObject of(final Game game, final Player side, final RecordIds ids) {
-        return new SnapshotLine(game, side, ids).build();
+        return of(game, side, ids, game.REVEAL_LOG.knownTo(side));
+    }
+
+    /**
+     * The line with {@code opp_revealed} taken from {@code revealed} instead of the game's own log. The ONNX evaluator
+     * scores the search's copies, which have no log, with what the real game's log held at the root of the search.
+     */
+    static JsonObject of(final Game game, final Player side, final RecordIds ids, final List<RevealLog.Entry> revealed) {
+        return new SnapshotLine(game, side, ids, revealed).build();
     }
 
     private JsonObject build() {
@@ -184,7 +194,7 @@ final class SnapshotLine {
      */
     private JsonArray revealed() {
         final JsonArray list = new JsonArray();
-        final List<RevealLog.Entry> entries = new ArrayList<>(game.REVEAL_LOG.knownTo(me));
+        final List<RevealLog.Entry> entries = new ArrayList<>(revealedEntries);
         entries.sort(Comparator.comparing(RevealLog.Entry::name).thenComparing(RevealLog.Entry::face));
         for (final RevealLog.Entry entry : entries) {
             final JsonObject out = new JsonObject();

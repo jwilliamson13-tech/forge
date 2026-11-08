@@ -278,6 +278,8 @@ public class SimulateMatch {
                 int sleeveIndex = sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount);
                 LobbyPlayer player = GamePlayerUtil.createAiPlayer(name, i - 1, sleeveIndex, aiOptionsForSimMode(simMode), profile);
                 ((LobbyPlayerAi) player).setScopedDecisions(tripwire || honest);
+                // -Dforge.onnx.bundle puts this seat's search on the learned evaluator, until #23's flag takes over
+                OnnxSeats.configure(i, (LobbyPlayerAi) player);
                 rp.setPlayer(player);
                 pp.add(rp);
                 // the budget is one value for the run, and a heuristic seat has no search to spend it on
