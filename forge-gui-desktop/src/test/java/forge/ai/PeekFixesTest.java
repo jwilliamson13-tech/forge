@@ -228,6 +228,22 @@ public class PeekFixesTest extends AITest {
     }
 
     @Test
+    public void beseechTheMirrorLetsTheSearcherSeeTheCardItExiled() {
+        startGame(true);
+        final Card beseech = addCardToZone("Beseech the Mirror", ai, ZoneType.Hand);
+        assertTrue("the search asks for a look at the card", beseech.getFirstSpellAbility().hasParam("WithMayLook"));
+        final SpellAbility search = AbilityFactory.getAbility(
+                "SP$ ChangeZone | ChangeNum$ 1 | ChangeType$ Card | Mandatory$ True | Origin$ Library | Destination$ Exile"
+                        + " | ExileFaceDown$ True | WithMayLook$ True | Defined$ TopOfLibrary", beseech);
+        search.setActivatingPlayer(ai);
+        search.resolve();
+        final Card exiled = ai.getCardsIn(ZoneType.Exile).getFirst();
+        assertTrue(exiled.isFaceDown());
+        assertTrue("the searcher may look at it", exiled.getView().canFaceDownBeShownTo(ai.getView()));
+        assertFalse("the opponent may not", exiled.getView().canFaceDownBeShownTo(opp.getView()));
+    }
+
+    @Test
     public void duressRevealsTheHandSoTheThreatCheckNeedsNoPeek() {
         startGame(true);
         addCardToZone("Lightning Bolt", opp, ZoneType.Hand);
