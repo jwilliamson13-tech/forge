@@ -10,8 +10,10 @@ import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
+import forge.util.MyRandom;
 
 import java.util.Objects;
+import java.util.Random;
 
 /**
  * Fills Forge's two-integer {@link Score} from a {@link WinProbabilityEvaluator}, the same way for every evaluator.
@@ -36,7 +38,13 @@ import java.util.Objects;
  * The copy for the second look counts as no search step, like the copy {@link GameStateEvaluator} makes to look at
  * the coming combat. The removal is not a zone change: it runs no triggers and no state-based actions. It takes the
  * creatures out of the battlefield and out of combat, then applies static abilities again, so a lord that was removed
- * no longer pumps what is left.
+ * no longer pumps what is left. A removed creature is in no zone at all, as a card a spell remembers for its last known
+ * information can be, so a later copy of the derived state skips it where another card still remembers it.
+ * <p>
+ * The second look draws nothing from the game's stream. Whatever the copy or the evaluator draws there comes from a
+ * generator of its own, seeded the same way every time. An evaluator that calls into Forge's AI, as the passthrough
+ * does through Forge's combat look, would otherwise move {@link MyRandom} on, and every game after it in the JVM would
+ * play out differently from the stock search, which takes no second look.
  */
 public final class TwoLookScorer implements SearchScorer {
     /** The score for a probability of 0. A probability of 0.5 scores 0. */
@@ -67,12 +75,21 @@ public final class TwoLookScorer implements SearchScorer {
         if (!removesSickCreatures(game) || sickCreatures(aiPlayer).isEmpty()) {
             return value;
         }
-        GameCopier copier = new GameCopier(game);
-        Game derived = copier.makeCopy(null, aiPlayer);
-        Player derivedAi = copier.find(aiPlayer);
-        removeSickCreatures(derived, derivedAi);
-        return toScore(evaluator.winProbability(derived, derivedAi));
+        Random gameStream = MyRandom.getRandom();
+        MyRandom.setRandom(new Random(SECOND_LOOK_SEED));
+        try {
+            GameCopier copier = new GameCopier(game);
+            Game derived = copier.makeCopy(null, aiPlayer);
+            Player derivedAi = copier.find(aiPlayer);
+            removeSickCreatures(derived, derivedAi);
+            return toScore(evaluator.winProbability(derived, derivedAi));
+        } finally {
+            MyRandom.setRandom(gameStream);
+        }
     }
+
+    /** The seed of the second look's own generator. Any fixed value keeps a run replaying. */
+    private static final long SECOND_LOOK_SEED = 0x2100CL;
 
     /** The probability mapped linearly onto the live range. Out-of-range values are clamped; NaN is an error. */
     public static int toScore(double probability) {
@@ -110,7 +127,8 @@ public final class TwoLookScorer implements SearchScorer {
             }
             Zone zone = c.getZone();
             zone.remove(c);
-            c.setZone(c.getOwner().getZone(ZoneType.None));
+            // no zone, not the None zone: GameCopier skips a remembered card with no zone, and would fail on any other
+            c.setZone(null);
         }
         game.getAction().checkStaticAbilities(false);
     }

@@ -2,6 +2,7 @@ package forge.ai.simulation;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
@@ -197,6 +198,57 @@ public class EvaluatorsTest extends SimulationTest {
         AssertJUnit.assertTrue("Forge holds the sick elves back: " + forge, forge.availableValue < forge.value);
         AssertJUnit.assertTrue("the second look drops the elves' mana as well: " + seam + " vs " + forge,
                 seam.availableValue < forge.availableValue);
+    }
+
+    /**
+     * Cavern of Souls and others remember cards. A creature the second look took away must not break the copy that
+     * Forge's combat look makes of the derived state, as it did in the first passthrough batch: "Couldn't map".
+     */
+    @Test
+    public void aRememberedCreatureTakenAwayDoesNotBreakTheNextCopy() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        Card land = addCard("Forest", ai);
+        Card sick = addCard("Grizzly Bears", ai);
+        // a creature ready to attack, so Forge's evaluator copies the derived state to look at the combat
+        addCard("Runeclaw Bear", ai).setSickness(false);
+        land.addRemembered(sick);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai);
+        game.getAction().checkStateEffects(true);
+        AssertJUnit.assertTrue(sick.isSick());
+
+        Score score = Evaluators.scorer("passthrough", null).score(game, ai);
+        AssertJUnit.assertTrue(score.availableValue < score.value);
+        AssertJUnit.assertTrue("the real game is untouched",
+                sick.isInZone(ZoneType.Battlefield) && land.isRemembered(sick));
+    }
+
+    /** The second look draws from a generator of its own, so the game's stream moves only as the first look moves it. */
+    @Test
+    public void theSecondLookLeavesTheGamesStreamAlone() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        addCard("Grizzly Bears", ai);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai);
+        game.getAction().checkStateEffects(true);
+
+        Random before = MyRandom.getRandom();
+        List<Integer> looks = new ArrayList<>();
+        try {
+            MyRandom.setRandom(new Random(5));
+            new TwoLookScorer((g, p) -> {
+                looks.add(MyRandom.getRandom().nextInt());
+                return 0.5;
+            }).score(game, ai);
+            int next = MyRandom.getRandom().nextInt();
+
+            Random reference = new Random(5);
+            AssertJUnit.assertEquals("two looks", 2, looks.size());
+            AssertJUnit.assertEquals("the first look draws from the game's stream", reference.nextInt(), (int) looks.get(0));
+            AssertJUnit.assertEquals("and the second doesn't", reference.nextInt(), next);
+        } finally {
+            MyRandom.setRandom(before);
+        }
     }
 
     /** With nothing sick before combat, passthrough is Forge's score through and through. */
