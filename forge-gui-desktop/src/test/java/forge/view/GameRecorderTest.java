@@ -299,6 +299,24 @@ public class GameRecorderTest extends AITest {
     }
 
     @Test
+    public void aGameThatSearchesSaysHowManyCopiesWereChecked() throws IOException {
+        tripwire = true;
+        final GameRecorder recorder = startRecording(50);
+        game.AI_SIM_SEARCH = true;
+        assertEquals(List.of("Tripwire: 0 hits", "Tripwire copies: 0 checked"), GameRecorder.tripwireLines(game));
+        game.HIDDEN_READ_WATCH.copyChecked(List.of("Hand"));
+        game.HIDDEN_READ_WATCH.copyChecked(List.of());
+        firePriority();
+        endByClock(recorder);
+
+        final JsonObject summary = readFile().get(0).getAsJsonObject("tripwire");
+        assertEquals(1, summary.get("hits").getAsInt());
+        assertEquals("copy: Hand", summary.getAsJsonArray("signatures").get(0).getAsString());
+        assertEquals(List.of("Tripwire: 1 hits", "Tripwire hit: 1 copy: Hand", "Tripwire copies: 2 checked"),
+                GameRecorder.tripwireLines(game));
+    }
+
+    @Test
     public void withTheTripwireOffThereIsNoWatchAndNothingToPrint() {
         startRecording(50);
         assertNull(game.HIDDEN_READ_WATCH);

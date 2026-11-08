@@ -24,13 +24,20 @@ import forge.game.staticability.StaticAbility;
 import forge.game.trigger.TriggerType;
 import forge.game.zone.PlayerZoneBattlefield;
 import forge.game.zone.ZoneType;
+import forge.item.IPaperCard;
 import forge.item.PaperCard;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+
+import forge.ai.HonestPlay;
 
 public class GameCopier {
     private static final ZoneType[] ZONES = new ZoneType[] {
@@ -51,10 +58,25 @@ public class GameCopier {
     /** Copy the spells on the stack too (see {@link GameSimulator#COPY_STACK}); decided per copier. */
     private boolean copyStack = GameSimulator.COPY_STACK;
     private final Map<SpellAbility, SpellAbility> stackMap = new HashMap<>();
+    /**
+     * The player the copies are for. With {@link Game#AI_PRUNE_HIDDEN_INFO} on, what it can't know of the other players'
+     * hidden cards stays out of them. A copy made without naming one is for the player named last.
+     */
+    private Player viewer;
+    /**
+     * With the prune on, what each hidden card of the real game is copied as: the card the viewer believes is in its
+     * place, or null for the placeholder. A card that isn't a key is copied as it is. Made again for each copy.
+     */
+    private Map<Card, IPaperCard> pruned;
+    /** The real cards in hidden places that the viewer may see right now, so they are copied as they are. */
+    private final List<Card> seenHidden = new ArrayList<>();
+    /** The copies that weren't built from the real card they map to, so nothing else of that card goes into them. */
+    private final Set<Card> notFromTheirCard = Collections.newSetFromMap(new IdentityHashMap<>());
 
     public GameCopier(Game origGame) {
         this.origGame = origGame;
-        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+        // a snapshot copies every card as it is, so it has no place in a pruned copy
+        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT && !origGame.AI_PRUNE_HIDDEN_INFO) {
             this.snapshot = new GameSnapshot(origGame);
         }
     }
@@ -96,10 +118,16 @@ public class GameCopier {
         return makeCopy(null, null);
     }
     public Game makeCopy(PhaseType advanceToPhase, Player aiPlayer) {
-        if (origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+        if (snapshot != null) {
             // How do we advance to phase when using restores?
             return snapshot.makeCopy();
         }
+        if (aiPlayer != null) {
+            viewer = aiPlayer;
+        }
+        seenHidden.clear();
+        notFromTheirCard.clear();
+        pruned = origGame.AI_PRUNE_HIDDEN_INFO ? planPrune() : null;
 
         List<RegisteredPlayer> origPlayers = origGame.getMatch().getPlayers();
         List<RegisteredPlayer> newPlayers = new ArrayList<>();
@@ -168,7 +196,7 @@ public class GameCopier {
 
         for (Card c : newGame.getCardsInGame()) {
             Card origCard = (Card) reverseFind(c);
-            if (origCard.hasRemembered()) {
+            if (origCard.hasRemembered() && !notFromTheirCard.contains(c)) {
                 for (Object o : origCard.getRemembered()) {
                     if (o instanceof GameObject) {
                         // Sometimes, a spell can "remember" a token card that's not in any zone
@@ -221,11 +249,153 @@ public class GameCopier {
 
         // TODO update thisTurnCast
 
+        if (pruned != null) {
+            newGame.REVEAL_LOG = notepadFor(newGame);
+        }
+        if (origGame.HIDDEN_READ_WATCH != null) {
+            origGame.HIDDEN_READ_WATCH.copyChecked(leaks(newGame));
+        }
+
         if (advanceToPhase != null) {
             newGame.getPhaseHandler().devAdvanceToPhase(advanceToPhase, () -> GameSimulator.resolveStack(newGame, aiPlayer.getWeakestOpponent()));
         }
 
         return newGame;
+    }
+
+    /** True if {@code viewer} may know what {@code c} is, where it is now: its own hand and library, or what the rules show it. */
+    private static boolean knows(final Player viewer, final Card c) {
+        if (viewer == null) {
+            return !isHiddenPlace(c);
+        }
+        if (c.getOwner().equals(viewer) && (c.isInZone(ZoneType.Hand) || c.isInZone(ZoneType.Library))) {
+            // story 10 lets the AI keep its own library order
+            return true;
+        }
+        return c.getView().canBeShownTo(viewer.getView()) && c.getView().canFaceDownBeShownTo(viewer.getView());
+    }
+
+    /** A hand, a library, or a face-down card: where a card's identity can be hidden from a player. */
+    private static boolean isHiddenPlace(final Card c) {
+        return c.isFaceDown() || c.isInZone(ZoneType.Hand) || c.isInZone(ZoneType.Library);
+    }
+
+    /**
+     * What the copy holds in place of each hidden card the viewer can't know. It is built from what the viewer knows and
+     * never from the real card, so a copy says nothing about where a card has really gone.
+     * <ul>
+     * <li>A card the viewer may see right now (its own, or one the rules show it) stays as it is, where it is.</li>
+     * <li>Another player's hand and library: the cards on the viewer's notepad last seen in that zone take its unseen
+     * slots from the top, in notepad order, and the rest are placeholders. Zone sizes stay the same.</li>
+     * <li>A face-down card elsewhere: the object is public, so it is the card the notepad wrote down for it, if the notepad
+     * saw it face up in this same zone, and otherwise a placeholder.</li>
+     * </ul>
+     * A person can't follow a hidden move either: a card seen in hand and then put back on the library is still believed
+     * to be in hand. With no viewer every hidden card is a placeholder.
+     */
+    private Map<Card, IPaperCard> planPrune() {
+        final Map<Card, IPaperCard> plan = new IdentityHashMap<>();
+        for (final Player owner : origGame.getPlayers()) {
+            final Set<Integer> seenNow = new HashSet<>();
+            for (final ZoneType zone : List.of(ZoneType.Hand, ZoneType.Library)) {
+                for (final Card c : owner.getCardsIn(zone)) {
+                    if (knows(viewer, c)) {
+                        seenNow.add(c.getId());
+                        if (!owner.equals(viewer)) {
+                            seenHidden.add(c);
+                        }
+                    }
+                }
+            }
+            for (final ZoneType zone : List.of(ZoneType.Hand, ZoneType.Library)) {
+                final List<IPaperCard> believed = new ArrayList<>();
+                if (viewer != null && !owner.equals(viewer)) {
+                    for (final Card seen : HonestPlay.rememberedIn(viewer, owner, zone)) {
+                        if (!seenNow.contains(seen.getId()) && seen.getPaperCard() != null) {
+                            believed.add(seen.getPaperCard());
+                        }
+                    }
+                }
+                int next = 0;
+                for (final Card c : owner.getCardsIn(zone)) {
+                    if (!knows(viewer, c)) {
+                        plan.put(c, next < believed.size() ? believed.get(next++) : null);
+                    }
+                }
+            }
+        }
+        for (final ZoneType zone : ZONES) {
+            if (zone == ZoneType.Hand || zone == ZoneType.Library) {
+                continue;
+            }
+            for (final Card c : origGame.getCardsIn(zone)) {
+                if (!c.isFaceDown()) {
+                    continue;
+                }
+                if (knows(viewer, c)) {
+                    seenHidden.add(c);
+                    continue;
+                }
+                IPaperCard written = null;
+                if (viewer != null) {
+                    for (final Card seen : HonestPlay.rememberedIn(viewer, c.getOwner(), zone)) {
+                        if (seen.getId() == c.getId()) {
+                            written = seen.getPaperCard();
+                        }
+                    }
+                }
+                plan.put(c, written);
+            }
+        }
+        return plan;
+    }
+
+    /**
+     * The copy's own notepad: what the viewer knows of the hidden cards the copy holds, so that honest play on the copy
+     * goes by the same cards as on the real game. Null when the real game keeps none.
+     */
+    private RevealLog notepadFor(final Game newGame) {
+        if (origGame.REVEAL_LOG == null || viewer == null) {
+            return null;
+        }
+        final RevealLog log = new RevealLog(newGame);
+        final Player newViewer = playerMap.get(viewer);
+        for (final Map.Entry<Card, IPaperCard> e : pruned.entrySet()) {
+            if (e.getValue() != null) {
+                log.revealed(newViewer, cardMap.get(e.getKey()));
+            }
+        }
+        for (final Card c : seenHidden) {
+            log.revealed(newViewer, cardMap.get(c));
+        }
+        return log;
+    }
+
+    /**
+     * The tripwire's check on a copy: each hidden place in it that holds a card the viewer can't know, by the real game,
+     * and that isn't on the viewer's notepad by name. A placeholder gives nothing away. This looks only at what the copy
+     * ended up holding, so it catches a copy made with the prune off as well as a leak in the prune.
+     */
+    private Set<String> leaks(final Game newGame) {
+        final Set<String> places = new TreeSet<>();
+        final Set<String> written = new HashSet<>();
+        if (viewer != null && origGame.REVEAL_LOG != null) {
+            for (final RevealLog.Entry entry : origGame.REVEAL_LOG.writtenDown(viewer)) {
+                written.add(entry.name());
+            }
+        }
+        for (final Map.Entry<Card, Card> e : cardMap.entrySet()) {
+            final Card orig = e.getKey();
+            final Card copy = e.getValue();
+            if (copy.getGame() != newGame || orig.getZone() == null || !isHiddenPlace(orig) || knows(viewer, orig)) {
+                continue;
+            }
+            final String name = copy.getPaperCard() != null ? copy.getPaperCard().getName() : copy.getState(CardStateName.Original).getName();
+            if (!HIDDEN_CARD_NAME.equals(name) && !written.contains(name)) {
+                places.add((orig.isFaceDown() ? "face-down " : "") + orig.getZone().getZoneType());
+            }
+        }
+        return places;
     }
 
     private void copyStack(Game origGame, Game newGame, IEntityMap map) {
@@ -285,6 +455,7 @@ public class GameCopier {
         newGame.AI_TIMEOUT = origGame.AI_TIMEOUT;
         newGame.AI_SIM_SEARCH = origGame.AI_SIM_SEARCH;
         newGame.AI_HONEST_PLAY = origGame.AI_HONEST_PLAY;
+        newGame.AI_PRUNE_HIDDEN_INFO = origGame.AI_PRUNE_HIDDEN_INFO;
         newGame.setAge(origGame.getAge());
 
         // TODO countersAddedThisTurn
@@ -339,7 +510,7 @@ public class GameCopier {
             if (card.isPaired()) {
                 otherCard.setPairedWith(cardMap.get(card.getPairedWith()));
             }
-            if (card.getCopiedPermanent() != null) {
+            if (card.getCopiedPermanent() != null && !notFromTheirCard.contains(otherCard)) {
                 // TODO would it be safe to simply reuse the prototype?
                 otherCard.setCopiedPermanent(new CardCopyService(card.getCopiedPermanent()).copyCard(false));
             }
@@ -368,8 +539,9 @@ public class GameCopier {
                 try {
                     final Card now = origGame.findById(lki.getId());
                     Card base = now == null ? null : cardMap.get(now);
-                    if (base == null) {
-                        // a token (it ceased to exist): rebuild it from the last known information
+                    if (base == null || notFromTheirCard.contains(base)) {
+                        // a token (it ceased to exist), or a card that has since gone where the copy hides it: what
+                        // left was public, so rebuild it from the last known information
                         final Player owner = playerMap.get(lki.getOwner());
                         if (owner == null) {
                             continue;
@@ -393,10 +565,19 @@ public class GameCopier {
         }
     }
 
-    private static PaperCard hidden_info_card = new PaperCard(CardRules.fromScript(Lists.newArrayList("Name:hidden", "Types:Artifact", "Oracle:")), "", CardRarity.Common);
-    private static final boolean PRUNE_HIDDEN_INFO = false;
-    private static final boolean USE_FROM_PAPER_CARD = true;
+    /** The name of the placeholder a pruned copy holds for a card its viewer can't know. */
+    public static final String HIDDEN_CARD_NAME = "hidden";
+    private static final PaperCard hidden_info_card = new PaperCard(CardRules.fromScript(Lists.newArrayList("Name:" + HIDDEN_CARD_NAME, "Types:Artifact", "Oracle:")), "", CardRarity.Common);
+    /** False only in tests, to run the copy path that builds a card from its current state rather than its paper card. */
+    static boolean useFromPaperCard = true;
     private Card createCardCopy(Game newGame, Player newOwner, Card c, Player aiPlayer) {
+        if (pruned != null && pruned.containsKey(c)) {
+            // decided before any copy path, so that every path prunes the same way
+            final IPaperCard believed = pruned.get(c);
+            final Card newCard = CardFactory.getCard(believed == null ? hidden_info_card : believed, newOwner, c.getId(), newGame);
+            notFromTheirCard.add(newCard);
+            return newCard;
+        }
         if (c.isToken() && !c.isImmutable()) {
             Card result = new TokenInfo(c).makeOneToken(newOwner, c.getId());
             new CardCopyService(c).copyCopiableCharacteristics(result, null, null);
@@ -411,15 +592,8 @@ public class GameCopier {
             result.setBackSide(c.isBackSide());
             return result;
         }
-        if (USE_FROM_PAPER_CARD && !c.isImmutable() && c.getPaperCard() != null) {
-            Card newCard;
-            if (PRUNE_HIDDEN_INFO && aiPlayer != null && !c.getView().canBeShownTo(aiPlayer.getView())) {
-                // TODO also check REVEALED_CARDS memory
-                newCard = new Card(c.getId(), hidden_info_card, newGame);
-                newCard.setOwner(newOwner);
-            } else {
-                newCard = CardFactory.getCard(c.getPaperCard(), newOwner, c.getId(), newGame);
-            }
+        if (useFromPaperCard && !c.isImmutable() && c.getPaperCard() != null) {
+            Card newCard = CardFactory.getCard(c.getPaperCard(), newOwner, c.getId(), newGame);
             newCard.setCommander(c.isCommander());
             return newCard;
         }
@@ -526,7 +700,9 @@ public class GameCopier {
             }
 
             newCard.setFlipped(c.isFlipped());
-            for (Map.Entry<Long, CardCloneStates> e : c.getCloneStates().entrySet()) {
+            // a pruned face-down card keeps nothing that belongs to the card it hides: no clone states, no SVars
+            final boolean ownCard = !notFromTheirCard.contains(newCard);
+            for (Map.Entry<Long, CardCloneStates> e : ownCard ? c.getCloneStates().entrySet() : List.<Map.Entry<Long, CardCloneStates>>of()) {
                 newCard.addCloneState(e.getValue().copy(newCard, true), e.getKey());
             }
 
@@ -552,8 +728,10 @@ public class GameCopier {
 
             newCard.setSprocket(c.getSprocket());
 
-            newCard.setSVars(c.getSVars());
-            newCard.copyChangedSVarsFrom(c);
+            if (ownCard) {
+                newCard.setSVars(c.getSVars());
+                newCard.copyChangedSVarsFrom(c);
+            }
         }
 
         if (zone == ZoneType.Exile && origGame.AI_SIM_SEARCH && c.hasSuspend()) {
@@ -665,7 +843,7 @@ public class GameCopier {
     }
 
     public <T extends GameObject> T find(T o) {
-        if (origGame != null && origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+        if (snapshot != null) {
             return (T) snapshot.find(o);
         }
 
@@ -692,7 +870,7 @@ public class GameCopier {
         return result;
     }
     public GameObject reverseFind(GameObject o) {
-        if (origGame != null && origGame.EXPERIMENTAL_RESTORE_SNAPSHOT) {
+        if (snapshot != null) {
             return snapshot.reverseFind(o);
         }
 

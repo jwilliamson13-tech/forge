@@ -11,6 +11,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -288,14 +289,18 @@ public class HiddenReadWatchTest extends AITest {
     }
 
     @Test
-    public void simulationCopiesDoNotFire() {
+    public void readsOnASimulationCopyDoNotFireButTheCopyIsChecked() {
         startDeciding();
-        final Game copy = new GameCopier(game).makeCopy();
+        final Game copy = new GameCopier(game).makeCopy(null, ai);
         assertNull(copy.HIDDEN_READ_WATCH);
+        assertEquals(1, watch.copiesChecked());
+        // the prune is off, so the copy holds the opponent's hand and library: one hit for each place, per copy
+        final Map<String, Integer> checked = watch.hitsBySignature();
+        assertEquals(Map.of(HiddenReadWatch.COPY + "Hand", 1, HiddenReadWatch.COPY + "Library", 1), checked);
         final Player copiedOpp = copy.getPlayers().get(0);
         assertEquals("opp", copiedOpp.getName());
         assertEquals("Fog", copiedOpp.getCardsIn(ZoneType.Hand).getFirst().getName());
-        assertNoHits();
+        assertEquals(checked, watch.hitsBySignature());
     }
 
     @Test
