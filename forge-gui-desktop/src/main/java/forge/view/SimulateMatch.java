@@ -68,6 +68,8 @@ public class SimulateMatch {
     private static boolean tripwire = false;
     /** True with -honest on: the AI keeps to what a person in its seat could know. See Game.AI_HONEST_PLAY. */
     private static boolean honest = false;
+    /** True by default when a seat searches, unless -prune off says otherwise. See Game.AI_PRUNE_HIDDEN_INFO. */
+    private static boolean prune = false;
 
     static void setTripwire(final boolean on) {
         tripwire = on;
@@ -183,6 +185,13 @@ public class SimulateMatch {
             return;
         }
         honest = List.of("on").equals(params.get("honest"));
+
+        final String pruneProblem = pruneOptionProblem(params);
+        if (pruneProblem != null) {
+            System.out.println(pruneProblem);
+            return;
+        }
+        prune = pruneOn(params);
 
         String evalProblem = OnnxEvaluators.retiredPropertyProblem();
         if (evalProblem == null) {
@@ -460,6 +469,25 @@ public class SimulateMatch {
         return null;
     }
 
+    /** Why -prune can't be used, or null if it can or wasn't asked for. */
+    static String pruneOptionProblem(Map<String, List<String>> params) {
+        List<String> values = params.get("prune");
+        if (values == null) {
+            return null;
+        }
+        if (!(List.of("on").equals(values) || List.of("off").equals(values))) {
+            return "-prune takes on or off: " + values;
+        }
+        // -sim, which is what makes a seat search, can't go with -t either
+        return params.containsKey("t") ? "-prune cannot be used with -t" : null;
+    }
+
+    /** On when a seat searches, so a search never sees what its seat couldn't know, unless -prune says otherwise. */
+    static boolean pruneOn(Map<String, List<String>> params) {
+        List<String> values = params.get("prune");
+        return values == null ? anySeatSearches(params.get("sim")) : List.of("on").equals(values);
+    }
+
     /** On for every forge sim run but a tournament, with or without records. Default play outside forge sim has none. */
     static boolean tripwireOn(Map<String, List<String>> params) {
         return !params.containsKey("t") && !List.of("off").equals(params.get("tripwire"));
@@ -496,7 +524,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -eval [EVAL] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -prune [on|off] -eval [EVAL] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -515,6 +543,7 @@ public class SimulateMatch {
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
         System.out.println("\ttripwire - Catch forge-ai reading a hand or library that isn't its own, defaults to on. Hits go in Tripwire lines before each result, and in the game record with -record. Not for tournaments.");
         System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
+        System.out.println("	prune - Have the copies a searching seat plays its search on hold only what that seat could know of the other players' hidden cards: placeholders, and what it was shown. Defaults to on when -sim gives a seat hybrid or full, and to off otherwise. Not for tournaments.");
         System.out.println("\tEVAL - Evaluator per player for the search to score states with, in the same order as the decks: forge, random, passthrough or onnx:DIR (e.g. -eval random forge). forge is Forge's own and the default. random is a uniform draw from its own generator, seeded from -s and the seat. passthrough is Forge's own score through the evaluator seam. onnx:DIR is the learned model in the export bundle in folder DIR, under ONNX Runtime; each folder loads once, so seats on two folders play two models, and each such seat writes 'ONNX evaluator: seat N searches with DIR' to stderr. -Dforge.onnx.threads=N gives each bundle N threads, 1 by default. Any but forge needs the seat to be hybrid or full. With the flag, result lines name each player's evaluator as [eval=name], with onnx for onnx:DIR. Not for tournaments.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
@@ -538,6 +567,7 @@ public class SimulateMatch {
         }
         g1.AI_SIM_SEARCH = simSearch;
         g1.AI_HONEST_PLAY = honest;
+        g1.AI_PRUNE_HIDDEN_INFO = prune;
         if (tripwire) {
             g1.HIDDEN_READ_WATCH = new HiddenReadWatch();
         }

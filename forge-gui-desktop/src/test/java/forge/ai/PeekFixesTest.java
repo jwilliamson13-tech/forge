@@ -199,6 +199,35 @@ public class PeekFixesTest extends AITest {
     }
 
     @Test
+    public void orderingTheOpponentsLibraryTopGoesByWhatWasSeen() {
+        startGame(true);
+        addCardToZone("Mountain", opp, ZoneType.Hand);
+        addCardToZone("Grizzly Bears", opp, ZoneType.Library);
+        final Card top = addCardToZone("Lightning Bolt", opp, ZoneType.Library);
+        ComputerUtil.scryWillMoveCardToBottomOfLibrary(opp, top);
+        assertNoHits();
+    }
+
+    @Test
+    public void orderingItsOwnLibraryTopReadsItsOwnCards() {
+        startGame(true);
+        addCardToZone("Mountain", ai, ZoneType.Hand);
+        final Card top = ai.getCardsIn(ZoneType.Library).getFirst();
+        ComputerUtil.scryWillMoveCardToBottomOfLibrary(ai, top);
+        assertNoHits();
+    }
+
+    @Test
+    public void withTheFlagOffOrderingTheOpponentsLibraryTopReadsTheirCards() {
+        startGame(false);
+        addCardToZone("Mountain", opp, ZoneType.Hand);
+        final Card top = addCardToZone("Lightning Bolt", opp, ZoneType.Library);
+        ComputerUtil.scryWillMoveCardToBottomOfLibrary(opp, top);
+        assertTrue(watch.hitsBySignature().toString(),
+                watch.hitsBySignature().keySet().stream().anyMatch(s -> s.contains("scryWillMoveCardToBottomOfLibrary")));
+    }
+
+    @Test
     public void duressRevealsTheHandSoTheThreatCheckNeedsNoPeek() {
         startGame(true);
         addCardToZone("Lightning Bolt", opp, ZoneType.Hand);

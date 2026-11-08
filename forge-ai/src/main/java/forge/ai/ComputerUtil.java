@@ -2298,8 +2298,11 @@ public class ComputerUtil {
         boolean uncastablesToBottom = AiProfileUtil.getBoolProperty(player, AiProps.SCRY_IMMEDIATELY_UNCASTABLE_TO_BOTTOM);
         int uncastableCMCThreshold = AiProfileUtil.getIntProperty(player, AiProps.SCRY_IMMEDIATELY_UNCASTABLE_CMC_DIFF);
 
-        CardCollectionView allCards = player.getAllCards();
-        CardCollectionView cardsInHand = player.getCardsIn(ZoneType.Hand);
+        // the AI can order an opponent's library top too, and then it goes by what it has seen of their cards
+        final Player decider = player.getGame().AI_DECIDERS.current();
+        final boolean ownCards = !HonestPlay.on(player) || decider == null || decider.equals(player);
+        CardCollectionView allCards = ownCards ? player.getAllCards() : HonestPlay.knownCards(decider, player);
+        CardCollectionView cardsInHand = HonestPlay.handAsKnown(player);
         CardCollectionView cardsOTB = player.getCardsIn(ZoneType.Battlefield);
 
         CardCollection landsOTB = CardLists.filter(cardsOTB, CardPredicates.LANDS_PRODUCING_MANA);
