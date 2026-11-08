@@ -187,6 +187,8 @@ public class SpellAbilityChoicesIterator {
                 doneEvaluating(choicePoints.get(i).bestScoreForChoice);
             }
             choicePoints.clear();
+            // No choice point is left on the stack, so the next target or mode has to push its choices from the first.
+            incrementedCpIndex = 0;
         }
         if (cachedTargetScores != null) {
             pushTarget = true;

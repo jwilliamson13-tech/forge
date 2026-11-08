@@ -155,7 +155,11 @@ public class GameSimulator {
 
     public void setInterceptor(SpellAbilityChoicesIterator interceptor) {
         this.interceptor = interceptor;
-        ((PlayerControllerAi) aiPlayer.getController()).getAi().getSimulationPicker().setInterceptor(interceptor);
+        setPickerInterceptor(interceptor);
+    }
+
+    private void setPickerInterceptor(SpellAbilityChoicesIterator in) {
+        ((PlayerControllerAi) aiPlayer.getController()).getAi().getSimulationPicker().setInterceptor(in);
     }
 
     private void printDiff(List<String> lines1, List<String> lines2) {
@@ -311,12 +315,21 @@ public class GameSimulator {
         controller.lineSimulated(score);
         if (controller.shouldRecurse() && !simGame.isGameOver()) {
             controller.push(sa, score, this);
-            SpellAbilityPicker sim = new SpellAbilityPicker(aiPlayer);
-            SpellAbility nextSa = sim.chooseSpellAbilityToPlay(controller);
-            if (nextSa != null) {
-                score = sim.getScoreForChosenAbility();
+            // The choices the interceptor walks are this ability's own. The deeper search asks this copy's AI for
+            // choices of its own (whether its candidates can be paid for, such as which creature a mana ability would
+            // sacrifice), and it only runs while no line has won yet, so those choices come and go between the
+            // interceptor's passes and break its count. They go to the AI's own logic instead.
+            setPickerInterceptor(null);
+            try {
+                SpellAbilityPicker sim = new SpellAbilityPicker(aiPlayer);
+                SpellAbility nextSa = sim.chooseSpellAbilityToPlay(controller);
+                if (nextSa != null) {
+                    score = sim.getScoreForChosenAbility();
+                }
+                controller.pop(score, nextSa);
+            } finally {
+                setPickerInterceptor(interceptor);
             }
-            controller.pop(score, nextSa);
         }
 
         return score;
