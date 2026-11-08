@@ -91,7 +91,13 @@ public class GameStateEvaluator {
         return score > Integer.MAX_VALUE - (long) MAX_DISCOUNTED_TURNS * GAME_OVER_TURN_PENALTY;
     }
 
-    private Score getTerminalScore(Game game, Player ai) {
+    /** True for any score that means the AI has lost, however far off that loss is. A failed simulation isn't one. */
+    public static boolean isLosing(int score) {
+        return score != Integer.MIN_VALUE && score <= Integer.MIN_VALUE + 1 + (long) MAX_DISCOUNTED_TURNS * GAME_OVER_TURN_PENALTY;
+    }
+
+    /** The score of a game {@code ai} is out of: a win or a loss, discounted by the turn. */
+    static Score getTerminalScore(Game game, Player ai) {
         // a game long enough to overflow the discount is not one we can reason about anyway
         int turn = Math.min(game.getPhaseHandler().getTurn(), MAX_DISCOUNTED_TURNS);
         if (ai.hasWon()) {
