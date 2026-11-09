@@ -3,6 +3,7 @@ package forge.ai.simulation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
@@ -294,6 +295,131 @@ public class EvaluatorsTest extends SimulationTest {
         } finally {
             MyRandom.setRandom(before);
         }
+    }
+
+    /**
+     * Forge's combat look runs the AI's attack and block code, which draws from the game's stream. Each call starts the
+     * stream from the same seed, so two looks at one state play the same combat.
+     */
+    private static <T> T seeded(Supplier<T> look) {
+        Random before = MyRandom.getRandom();
+        try {
+            MyRandom.setRandom(new Random(11));
+            return look.get();
+        } finally {
+            MyRandom.setRandom(before);
+        }
+    }
+
+    /** Passthrough and Forge give a state the very same two integers. */
+    private static void assertPassthroughIsForge(String what, Game game, Player ai) {
+        Score forge = seeded(() -> new GameStateEvaluator().getScoreForGameState(game, ai));
+        Score seam = seeded(() -> Evaluators.scorer("passthrough", null).score(game, ai));
+        AssertJUnit.assertTrue(what + ": " + forge + " vs " + seam, forge.equals(seam));
+    }
+
+    /**
+     * The AI's turn, a ready bear facing an opponent on 2 life with nothing to block: Forge's combat look ends the game,
+     * and its win band comes through the seam as it is, so the search stops there as it does in stock. A sick creature
+     * is on the board, so the scorer would otherwise take a second look.
+     */
+    @Test
+    public void aWinInTheCombatLookKeepsForgesWinBand() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        Player opp = game.getPlayers().get(0);
+        addCard("Runeclaw Bear", ai).setSickness(false);
+        addCard("Grizzly Bears", ai);
+        opp.setLife(2, null);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai, 3);
+        game.getAction().checkStateEffects(true);
+
+        Score forge = seeded(() -> new GameStateEvaluator().getScoreForGameState(game, ai));
+        AssertJUnit.assertTrue("Forge's combat look should find the win: " + forge, GameStateEvaluator.isWinning(forge.value));
+        assertPassthroughIsForge("a win in combat", game, ai);
+        Score seam = seeded(() -> Evaluators.scorer("passthrough", null).score(game, ai));
+        AssertJUnit.assertFalse("the search stops at it", new SimulationController(seam).shouldRecurse());
+    }
+
+    /**
+     * The states of #23 with a band on one side: here the win needs a sick lord's pump. Forge's combat look on the
+     * real state finds it, and the second look, without the lord, wouldn't. The real state's end decides, as in stock.
+     */
+    @Test
+    public void aWinTheSickLordMakesKeepsForgesWinBand() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        Player opp = game.getPlayers().get(0);
+        addCard("Lord of Atlantis", ai);
+        Card merfolk = addCard("Merfolk of the Pearl Trident", ai);
+        merfolk.setSickness(false);
+        opp.setLife(2, null);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai, 3);
+        game.getAction().checkStateEffects(true);
+        AssertJUnit.assertEquals("the lord pumps the merfolk to lethal", 2, merfolk.getNetPower());
+
+        Score forge = seeded(() -> new GameStateEvaluator().getScoreForGameState(game, ai));
+        AssertJUnit.assertTrue("Forge's combat look should find the win: " + forge, GameStateEvaluator.isWinning(forge.value));
+        assertPassthroughIsForge("a win the sick lord makes", game, ai);
+    }
+
+    /**
+     * The opponent's turn, a ready flier against an AI on 3 life whose only creature is a sick bear that can't block
+     * it: Forge's combat look ends the game in a loss, and its loss band comes through as it is. The search goes on
+     * past a loss, as in stock.
+     */
+    @Test
+    public void aLossInTheCombatLookKeepsForgesLossBand() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        Player opp = game.getPlayers().get(0);
+        addCard("Serra Angel", opp).setSickness(false);
+        addCard("Grizzly Bears", ai);
+        ai.setLife(3, null);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, opp, 3);
+        game.getAction().checkStateEffects(true);
+
+        Score forge = seeded(() -> new GameStateEvaluator().getScoreForGameState(game, ai));
+        AssertJUnit.assertTrue("Forge's combat look should find the loss: " + forge, GameStateEvaluator.isLosing(forge.value));
+        assertPassthroughIsForge("a loss in combat", game, ai);
+        Score seam = seeded(() -> Evaluators.scorer("passthrough", null).score(game, ai));
+        AssertJUnit.assertTrue("the search goes on past it", new SimulationController(seam).shouldRecurse());
+    }
+
+    /**
+     * Only the real state's end counts. On the opponent's turn a sick wall holds off a bear that would be lethal, so
+     * Forge sees no end; the second look, without the wall, does. That stays a live score at the bottom of the range,
+     * as before: stock never sees that loss.
+     */
+    @Test
+    public void anEndOnlyTheSecondLookSeesStaysLive() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        Player opp = game.getPlayers().get(0);
+        addCard("Grizzly Bears", opp).setSickness(false);
+        addCard("Wall of Stone", ai);
+        ai.setLife(2, null);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, opp, 3);
+        game.getAction().checkStateEffects(true);
+
+        Score forge = seeded(() -> new GameStateEvaluator().getScoreForGameState(game, ai));
+        AssertJUnit.assertFalse("the wall should hold in Forge's look: " + forge,
+                GameStateEvaluator.isWinning(forge.value) || GameStateEvaluator.isLosing(forge.value));
+        Score seam = seeded(() -> Evaluators.scorer("passthrough", null).score(game, ai));
+        AssertJUnit.assertEquals("the value is Forge's", forge.value, seam.value);
+        AssertJUnit.assertEquals("the second look's loss on turn 3, kept live", TwoLookScorer.LIVE_SCORE_MIN + 3, seam.availableValue);
+        AssertJUnit.assertFalse(GameStateEvaluator.isLosing(seam.availableValue));
+    }
+
+    /** For a live state the passthrough foresees no end, and its estimate is its probability. */
+    @Test
+    public void passthroughForeseesNoEndInALiveState() {
+        Game game = boardWithBears(PhaseType.MAIN1, true, true);
+        Player ai = game.getPlayers().get(1);
+        PassthroughEvaluator passthrough = new PassthroughEvaluator();
+        WinProbabilityEvaluator.Estimate estimate = seeded(() -> passthrough.estimate(game, ai));
+        AssertJUnit.assertNull(estimate.end());
+        AssertJUnit.assertEquals(seeded(() -> passthrough.winProbability(game, ai)), estimate.probability(), 0.0);
     }
 
     /** With nothing sick before combat, passthrough is Forge's score through and through. */
