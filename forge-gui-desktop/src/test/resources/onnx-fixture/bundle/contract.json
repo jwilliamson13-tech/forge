@@ -1,12 +1,12 @@
 {
- "version": 1,
+ "version": 2,
  "sizes": {
   "N": "dynamic, 0 or more",
   "A": 16,
   "T": 24,
   "K": 12,
   "L": 18,
-  "S": 10
+  "S": 16
  },
  "inputs": [
   {
@@ -93,7 +93,13 @@
   "opp_hand",
   "turn",
   "me_active",
-  "me_on_play"
+  "me_on_play",
+  "me_initiative",
+  "opp_initiative",
+  "me_monarch",
+  "opp_monarch",
+  "me_speed",
+  "opp_speed"
  ],
  "live_fields": [
   "power",
@@ -138,7 +144,10 @@
    "any other face": "back"
   },
   "lookup": "(name, slot), else the name's entry under any slot, else all masks 0.",
-  "hidden": "A hidden card has no lookup: all masks 0 and `hidden` 1 in `live`."
+  "hidden": "A hidden card has no lookup: all masks 0 and `hidden` 1 in `live`.",
+  "placeholder": "hidden",
+  "placeholder_rule": "A card or stack item named `placeholder` is a hidden card, in any zone.",
+  "skipped": "A stack ability whose name the table lacks has no card behind it, such as an effect, The Initiative or The Monarch, and is left out of the state."
  },
  "bundle": {
   "generation": 0,

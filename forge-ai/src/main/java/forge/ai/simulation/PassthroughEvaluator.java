@@ -1,5 +1,6 @@
 package forge.ai.simulation;
 
+import forge.ai.simulation.GameStateEvaluator.Score;
 import forge.game.Game;
 import forge.game.player.Player;
 
@@ -17,11 +18,14 @@ import forge.game.player.Player;
  *     out for this turn ends the game. Those keep their order too: a win {@code t} turns in maps to
  *     {@code LIVE_SCORE_MAX - t}, a loss to {@code LIVE_SCORE_MIN + t}, above and below every live score.</li>
  * </ul>
- * What the seam can't keep is that such a score counts as a win or a loss. Out of the scorer it is a live score, so
- * {@link SimulationController#shouldRecurse} doesn't stop searching at it as it would at a band score.
+ * For the real state, the first look, {@link #estimate} also hands the scorer such a band score as the end of the
+ * game, so the {@link TwoLookScorer} returns it as it is, value and available value alike, and
+ * {@link SimulationController#shouldRecurse} stops searching at a win as it does in stock. A loss keeps Forge's loss
+ * band the same way, and the search goes on past it, as in stock.
  * <p>
- * The available value isn't Forge's either. The {@link TwoLookScorer} takes it from Forge's {@code value} of the copy
- * with the AI's sick creatures removed, where Forge marks those creatures as worth 0 in place.
+ * Otherwise the available value isn't Forge's. The {@link TwoLookScorer} takes it from Forge's {@code value} of the
+ * copy with the AI's sick creatures removed, where Forge marks those creatures as worth 0 in place. A band Forge gives
+ * that copy, and not the real state, stays a live score at the top or bottom of the range: stock never sees that end.
  */
 public final class PassthroughEvaluator implements WinProbabilityEvaluator {
     /** Scores kept free at each end of the live range for Forge's discounted wins and losses, one per turn. */
@@ -32,6 +36,14 @@ public final class PassthroughEvaluator implements WinProbabilityEvaluator {
     @Override
     public double winProbability(Game game, Player aiPlayer) {
         return toProbability(new GameStateEvaluator().getScoreForGameState(game, aiPlayer).value);
+    }
+
+    /** Forge's score once, as a probability, and as the end of the game when it is one of Forge's bands. */
+    @Override
+    public Estimate estimate(Game game, Player aiPlayer) {
+        Score forge = new GameStateEvaluator().getScoreForGameState(game, aiPlayer);
+        boolean ends = GameStateEvaluator.isWinning(forge.value) || GameStateEvaluator.isLosing(forge.value);
+        return new Estimate(toProbability(forge.value), ends ? forge : null);
     }
 
     /** The probability whose {@link TwoLookScorer#toScore} is {@link #toLiveScore} of this Forge score. */

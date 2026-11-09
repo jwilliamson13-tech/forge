@@ -52,6 +52,7 @@ public final class OnnxEvaluator implements WinProbabilityEvaluator, AutoCloseab
     private final Map<Integer, List<RevealLog.Entry>> revealedAtRoot = new ConcurrentHashMap<>();
     private final Set<String> missingSeen = ConcurrentHashMap.newKeySet();
     private final AtomicLong missingCards = new AtomicLong();
+    private final AtomicLong skippedItems = new AtomicLong();
     private final AtomicLong calls = new AtomicLong();
     private final AtomicLong nanos = new AtomicLong();
     private final AtomicLong states = new AtomicLong();
@@ -73,7 +74,7 @@ public final class OnnxEvaluator implements WinProbabilityEvaluator, AutoCloseab
             session.close();
             throw e;
         }
-        this.encoder = new SnapshotEncoder(bundle, this::missing);
+        this.encoder = new SnapshotEncoder(bundle, this::missing, name -> skippedItems.incrementAndGet());
     }
 
     /** Loads the bundle in {@code folder} and opens its model on one CPU thread. */
@@ -230,14 +231,21 @@ public final class OnnxEvaluator implements WinProbabilityEvaluator, AutoCloseab
         return missingCards.get();
     }
 
+    /** Stack abilities left out so far for having no card behind them, such as The Monarch's trigger, counting repeats. */
+    public long skippedItems() {
+        return skippedItems.get();
+    }
+
     /** One line on what this evaluator has done: calls through the seam, time per call, cards per state, missing cards. */
     public String summary() {
         final long count = calls.get();
         final double meanMs = count == 0 ? 0 : nanos.get() / 1e6 / count;
         final long scored = states.get();
         return String.format("ONNX evaluator: %d calls, %.3f ms per call, %d states, %.1f cards per state, "
-                        + "%d cards scored without features, %d names missing",
-                count, meanMs, scored, scored == 0 ? 0.0 : (double) cardsScored.get() / scored, missingCards.get(), missingSeen.size());
+                        + "%d cards scored without features, %d names missing, %d stack abilities with no card left out, "
+                        + "contract version %d",
+                count, meanMs, scored, scored == 0 ? 0.0 : (double) cardsScored.get() / scored, missingCards.get(),
+                missingSeen.size(), skippedItems.get(), bundle.version());
     }
 
     @Override

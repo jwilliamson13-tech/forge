@@ -18,16 +18,26 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import forge.ai.simulation.GameCopier;
+
 /**
  * An export bundle from {@code python -m setmodel export}, read by path: the contract, the card-feature table and the
  * model file. The Python repo's {@code docs/tensor-contract.md} describes it.
  * <p>
- * Loading refuses a bundle whose contract this code doesn't implement: another version, or the same version with an
- * input, a field order or a zone list other than the ones {@link SnapshotEncoder} builds. A refusal is a
- * {@link BundleException} that names what differs, so a model never runs on inputs it wasn't trained on.
+ * Loading refuses a bundle whose contract this code doesn't implement: a version outside {@link #CONTRACT_VERSIONS}, or
+ * a known version with an input, a field order or a zone list other than the ones {@link SnapshotEncoder} builds for it.
+ * A refusal is a {@link BundleException} that names what differs, so a model never runs on inputs it wasn't trained on.
+ * <p>
+ * Versions 1 and 2 differ in the scoreboard only: version 2 adds the initiative, the monarch and speed. So a version 1
+ * bundle, such as gen0's, still loads, and its scoreboard is built from its own field list. Version 2's other two rules,
+ * leaving out a stack ability with no card behind it and treating the search's placeholder as hidden, apply to both:
+ * version 1 training dropped every snapshot that held either, so its model never saw what the old encoder gave them.
  */
 public final class OnnxBundle {
-    public static final int CONTRACT_VERSION = 1;
+    /** The version {@code python -m setmodel export} writes now. */
+    public static final int CONTRACT_VERSION = 2;
+    /** Every version this code loads. */
+    public static final List<Integer> CONTRACT_VERSIONS = List.of(1, 2);
     public static final String MODEL = "model.onnx";
     public static final String CONTRACT = "contract.json";
     public static final String CARD_TABLE = "card_features.jsonl.gz";
@@ -42,8 +52,12 @@ public final class OnnxBundle {
             List.of("number_mask", "float32", "N A K"),
             List.of("live", "float32", "N L"),
             List.of("zone", "int64", "N"));
-    static final List<String> SCOREBOARD_FIELDS = List.of("me_life", "opp_life", "me_poison", "opp_poison", "me_library",
+    /** Version 1's scoreboard. */
+    static final List<String> SCOREBOARD_FIELDS_V1 = List.of("me_life", "opp_life", "me_poison", "opp_poison", "me_library",
             "opp_library", "opp_hand", "turn", "me_active", "me_on_play");
+    /** Version 2's scoreboard: version 1's, then the game record's schema version 2 fields. */
+    static final List<String> SCOREBOARD_FIELDS = List.copyOf(concat(SCOREBOARD_FIELDS_V1, List.of("me_initiative",
+            "opp_initiative", "me_monarch", "opp_monarch", "me_speed", "opp_speed")));
     static final List<String> LIVE_FIELDS = List.of("power", "toughness", "is_creature", "tapped", "summoning_sick",
             "mine", "face_down", "hidden", "damage", "attacking", "blocking", "blocked", "attached", "counters_p1p1",
             "counters_m1m1", "counters_loyalty", "counters_other", "stack_ability");
@@ -51,6 +65,19 @@ public final class OnnxBundle {
     static final List<String> ZONES = List.of("battlefield", "me_hand", "me_graveyard", "opp_graveyard", "me_exile",
             "opp_exile", "opp_revealed", "stack");
     static final Map<String, String> SLOTS = Map.of("Original", "front", "EmptyRoom", "empty_room", "any other face", "back");
+    /** The name a pruned search copy gives a card its viewer can't know. Version 2's contract states it. */
+    static final String PLACEHOLDER = GameCopier.HIDDEN_CARD_NAME;
+
+    private static List<String> concat(final List<String> first, final List<String> second) {
+        final List<String> out = new ArrayList<>(first);
+        out.addAll(second);
+        return out;
+    }
+
+    /** The scoreboard fields of a contract version this code loads. */
+    static List<String> scoreboardFields(final int version) {
+        return version == 1 ? SCOREBOARD_FIELDS_V1 : SCOREBOARD_FIELDS;
+    }
 
     /** A bundle this code can't use. */
     public static final class BundleException extends IllegalArgumentException {
@@ -69,6 +96,8 @@ public final class OnnxBundle {
 
     private final Path folder;
     private final JsonObject contract;
+    private final int version;
+    private final List<String> scoreboardFields;
     private final int abilities;
     private final int tokens;
     private final int keys;
@@ -79,6 +108,8 @@ public final class OnnxBundle {
                        final Map<String, CardFeatures> firstByName) {
         this.folder = folder;
         this.contract = contract;
+        this.version = contract.get("version").getAsInt();
+        this.scoreboardFields = scoreboardFields(version);
         final JsonObject sizes = contract.getAsJsonObject("sizes");
         this.abilities = sizes.get("A").getAsInt();
         this.tokens = sizes.get("T").getAsInt();
@@ -112,10 +143,13 @@ public final class OnnxBundle {
     }
 
     static void checkContract(final JsonObject contract) {
-        final JsonElement version = contract.get("version");
-        if (version == null || !version.isJsonPrimitive() || version.getAsInt() != CONTRACT_VERSION) {
-            throw new BundleException("tensor contract version " + version + ", but this Forge implements version " + CONTRACT_VERSION);
+        final JsonElement versionField = contract.get("version");
+        if (versionField == null || !versionField.isJsonPrimitive() || !versionField.getAsJsonPrimitive().isNumber()
+                || !CONTRACT_VERSIONS.contains(versionField.getAsInt())) {
+            throw new BundleException("tensor contract version " + versionField + ", but this Forge implements versions "
+                    + CONTRACT_VERSIONS);
         }
+        final int version = versionField.getAsInt();
         final JsonObject sizes = contract.getAsJsonObject("sizes");
         for (final String letter : List.of("A", "T", "K", "L", "S")) {
             if (sizes == null || !sizes.has(letter) || !sizes.get(letter).getAsJsonPrimitive().isNumber() || sizes.get(letter).getAsInt() < 1) {
@@ -123,7 +157,7 @@ public final class OnnxBundle {
             }
         }
         expect("size L", LIVE_FIELDS.size(), sizes.get("L").getAsInt());
-        expect("size S", SCOREBOARD_FIELDS.size(), sizes.get("S").getAsInt());
+        expect("size S", scoreboardFields(version).size(), sizes.get("S").getAsInt());
         final List<List<String>> inputs = new ArrayList<>();
         for (final JsonElement element : contract.getAsJsonArray("inputs")) {
             final JsonObject input = element.getAsJsonObject();
@@ -134,7 +168,7 @@ public final class OnnxBundle {
         final JsonObject output = contract.getAsJsonObject("output");
         expect("output", List.of(OUTPUT, "float32", "1"), List.of(output.get("name").getAsString(),
                 output.get("dtype").getAsString(), String.join(" ", strings(output.getAsJsonArray("shape")))));
-        expect("scoreboard_fields", SCOREBOARD_FIELDS, strings(contract.getAsJsonArray("scoreboard_fields")));
+        expect("scoreboard_fields", scoreboardFields(version), strings(contract.getAsJsonArray("scoreboard_fields")));
         expect("live_fields", LIVE_FIELDS, strings(contract.getAsJsonArray("live_fields")));
         expect("zones", ZONES, strings(contract.getAsJsonArray("zones")));
         final JsonObject table = contract.getAsJsonObject("card_table");
@@ -142,6 +176,10 @@ public final class OnnxBundle {
         final Map<String, String> slots = new LinkedHashMap<>();
         table.getAsJsonObject("slots").entrySet().forEach(e -> slots.put(e.getKey(), e.getValue().getAsString()));
         expect("card_table slots", SLOTS, slots);
+        if (version >= 2) {
+            final JsonElement placeholder = table.get("placeholder");
+            expect("card_table placeholder", PLACEHOLDER, placeholder == null ? null : placeholder.getAsString());
+        }
     }
 
     private static void expect(final String what, final Object implemented, final Object found) {
@@ -232,6 +270,16 @@ public final class OnnxBundle {
 
     public Path folder() {
         return folder;
+    }
+
+    /** The bundle's tensor contract version, one of {@link #CONTRACT_VERSIONS}. */
+    public int version() {
+        return version;
+    }
+
+    /** The scoreboard fields in the bundle's order, which its version fixes. */
+    List<String> scoreboardFields() {
+        return scoreboardFields;
     }
 
     public Path modelFile() {
