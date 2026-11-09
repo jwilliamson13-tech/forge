@@ -111,7 +111,8 @@ public class SnapshotLineTest extends AITest {
         final JsonObject board = from(seat1).getAsJsonObject("scoreboard");
 
         assertEquals(Set.of("me_life", "opp_life", "me_poison", "opp_poison", "me_library", "opp_library", "opp_hand",
-                "turn", "me_active", "me_on_play"), board.keySet());
+                "turn", "me_active", "me_on_play", "me_initiative", "opp_initiative", "me_monarch", "opp_monarch",
+                "me_speed", "opp_speed"), board.keySet());
         assertEquals(17, board.get("me_life").getAsInt());
         assertEquals(9, board.get("opp_life").getAsInt());
         assertEquals(0, board.get("me_poison").getAsInt());
@@ -121,6 +122,33 @@ public class SnapshotLineTest extends AITest {
         assertEquals(2, board.get("opp_hand").getAsInt());
         assertEquals(4, board.get("turn").getAsInt());
         assertTrue(board.get("me_active").getAsBoolean());
+        assertFalse(board.get("me_initiative").getAsBoolean());
+        assertFalse(board.get("opp_monarch").getAsBoolean());
+        assertEquals(0, board.get("me_speed").getAsInt());
+    }
+
+    @Test
+    public void theInitiativeTheMonarchAndSpeedAreScoreboardFieldsFromEachSide() {
+        setUp();
+        game.setHasInitiative(seat1);
+        game.setMonarch(seat2);
+        seat1.setSpeed(3);
+        seat2.setSpeed(1);
+
+        final JsonObject mine = from(seat1).getAsJsonObject("scoreboard");
+        final JsonObject theirs = from(seat2).getAsJsonObject("scoreboard");
+
+        assertTrue(mine.get("me_initiative").getAsBoolean());
+        assertFalse(mine.get("opp_initiative").getAsBoolean());
+        assertFalse(mine.get("me_monarch").getAsBoolean());
+        assertTrue(mine.get("opp_monarch").getAsBoolean());
+        assertEquals(3, mine.get("me_speed").getAsInt());
+        assertEquals(1, mine.get("opp_speed").getAsInt());
+        assertFalse(theirs.get("me_initiative").getAsBoolean());
+        assertTrue(theirs.get("opp_initiative").getAsBoolean());
+        assertTrue(theirs.get("me_monarch").getAsBoolean());
+        assertEquals(1, theirs.get("me_speed").getAsInt());
+        assertEquals(3, theirs.get("opp_speed").getAsInt());
     }
 
     @Test

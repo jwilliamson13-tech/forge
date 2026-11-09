@@ -214,7 +214,7 @@ public class GameRecorderTest extends AITest {
 
         assertEquals(List.of(folder.resolve(FILE_NAME)), files());
         final JsonObject metadata = readFile().get(0);
-        assertEquals(1, metadata.get("schema_version").getAsInt());
+        assertEquals(2, metadata.get("schema_version").getAsInt());
         assertEquals("night-1", metadata.get("batch_id").getAsString());
         assertEquals(42L, metadata.get("seed").getAsLong());
         assertEquals(3, metadata.get("game_number").getAsInt());
