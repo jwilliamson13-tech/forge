@@ -103,6 +103,10 @@ public class Game {
     // Search steps per AI decision. 0 means no budget, and only AI_TIMEOUT limits a decision. Set by forge sim, for runs
     // that have to replay from their seed. Never copied: a search in a simulated game spends the real decision's budget.
     public int AI_SEARCH_BUDGET = 0;
+    // AI steps per heuristic AI decision, one per AITimeoutTracker.check(). 0 means none, and AI_TIMEOUT alone limits a
+    // decision. Set by forge sim -aisteps, for runs that have to replay from their seed. Never copied: an AI deciding in
+    // a simulated game spends the steps of the real decision it works for.
+    public int AI_STEP_BUDGET = 0;
     // Search changes that stay out of default play (issue 51). Set by forge sim when a seat searches, and copied into
     // simulated games, so that a search scores and retries the same way at every depth.
     public boolean AI_SIM_SEARCH = false;

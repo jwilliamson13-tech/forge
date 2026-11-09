@@ -1446,10 +1446,12 @@ public class AiController {
         final long timeoutNanos = TimeUnit.SECONDS.toNanos(game.getAITimeout());
         AITimeoutTracker.begin(id, timeoutNanos);
         Object limit = null;
+        AITimeoutTracker.Steps steps = null;
         try {
             // constructed before arming and inside the try: a throwing constructor can no longer leak begin()/arm()
             final AiBlockController block = new AiBlockController(defender, defender != player);
             limit = AITimeoutTracker.arm(AITimeoutTracker.deadlineNanos(id, timeoutNanos), false);
+            steps = AITimeoutTracker.armSteps(game.AI_STEP_BUDGET);
             try {
                 // When player != defender, AI should declare blockers for its benefit.
                 block.assignBlockersForCombat(combat);
@@ -1457,9 +1459,12 @@ public class AiController {
                 // out of time: keep the blocks decided so far (each block is added atomically, so combat stays consistent)
                 AITimeoutTracker.disarm(limit); // the fallback below must not be cut short again
                 limit = null;
+                AITimeoutTracker.disarmSteps(steps); // nor by the step budget
+                steps = null;
                 block.completeRequiredBlocks(combat); // creatures that must block still do
             }
         } finally {
+            AITimeoutTracker.disarmSteps(steps);
             if (limit != null) {
                 AITimeoutTracker.disarm(limit);
             }
@@ -1532,8 +1537,10 @@ public class AiController {
         final long timeoutNanos = TimeUnit.SECONDS.toNanos(game.getAITimeout());
         AITimeoutTracker.begin(id, timeoutNanos);
         Object limit = null;
+        AITimeoutTracker.Steps steps = null;
         try {
             limit = AITimeoutTracker.arm(AITimeoutTracker.deadlineNanos(id, timeoutNanos), false);
+            steps = AITimeoutTracker.armSteps(game.AI_STEP_BUDGET);
             lastAttackAggression = aiAtk.declareAttackers(combat);
 
             aiAtk.reinforceWithBanding(combat);
@@ -1541,6 +1548,8 @@ public class AiController {
         } catch (AITimeoutTracker.Expired e) {
             // out of time: attack with what was decided so far; the validity check below repairs an illegal declaration
         } finally {
+            // disarmed before the repairs below, which must not be cut short
+            AITimeoutTracker.disarmSteps(steps);
             if (limit != null) {
                 AITimeoutTracker.disarm(limit);
             }
@@ -1599,6 +1608,8 @@ public class AiController {
         AITimeoutTracker.begin(id, timeoutNanos);
         final Object limit = AITimeoutTracker.arm(AITimeoutTracker.deadlineNanos(id, timeoutNanos), false);
         final boolean budgeted = AITimeoutTracker.armBudget(game.AI_SEARCH_BUDGET);
+        // the step budget is for the heuristic AI: a full sim spell choice is a search, which -budget limits by copies
+        final AITimeoutTracker.Steps steps = usesFullSimulation() ? null : AITimeoutTracker.armSteps(game.AI_STEP_BUDGET);
         try {
             if (SimAudit.ENABLED) {
                 SimAudit.checkpoint(game, player);
@@ -1611,6 +1622,7 @@ public class AiController {
         } catch (AITimeoutTracker.Expired e) {
             return null; // out of time: pass priority
         } finally {
+            AITimeoutTracker.disarmSteps(steps);
             if (budgeted) {
                 AITimeoutTracker.disarmBudget();
             }
@@ -2573,10 +2585,13 @@ public class AiController {
         final long timeoutNanos = TimeUnit.SECONDS.toNanos(game.getAITimeout());
         AITimeoutTracker.begin(aiId, timeoutNanos);
         final long deadlineNanos = AITimeoutTracker.deadlineNanos(aiId, timeoutNanos);
+        // the decision's step budget, if it has one: this thread waits below while the eval thread spends it
+        final AITimeoutTracker.Steps steps = AITimeoutTracker.currentSteps();
         FutureTask<List<SpellAbility>> future = new FutureTask<>(() -> {
             final List<SpellAbility> approvedPlays = new ArrayList<>();
             // the eval thread aborts itself at the shared deadline (or when cancelled) instead of running on as a zombie
             final Object evalLimit = AITimeoutTracker.arm(deadlineNanos, true);
+            final AITimeoutTracker.Steps evalSteps = AITimeoutTracker.adoptSteps(steps);
             try {
                 //avoid ComputerUtil.aiLifeInDanger in loops as it slows down a lot.. call this outside loops will generally be fast...
                 final boolean isLifeInDanger = massReanimation && ComputerUtil.aiLifeInDanger(player, true, 0);
@@ -2675,6 +2690,7 @@ public class AiController {
             } catch (AITimeoutTracker.Expired e) {
                 return approvedPlays; // whatever was approved before time ran out
             } finally {
+                AITimeoutTracker.restoreSteps(evalSteps);
                 AITimeoutTracker.disarm(evalLimit); // matters as soon as this runs on a pooled thread
             }
         });

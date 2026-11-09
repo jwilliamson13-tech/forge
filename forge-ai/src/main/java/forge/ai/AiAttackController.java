@@ -892,13 +892,6 @@ public class AiAttackController {
             // nextTurn is now only used by effect from Oracle en-Vec, which can skip check must attack,
             // because creatures not chosen can't attack.
             if (!nextTurn) {
-                ExecutorService executor = Executors.newFixedThreadPool(
-                    Runtime.getRuntime().availableProcessors(), r -> {
-                        Thread t = Executors.defaultThreadFactory().newThread(r);
-                        t.setDaemon(true);
-                        return t;
-                    }
-                );
                 List<Callable<Integer>> tasks = new ArrayList<>();
                 final long deadline = AITimeoutTracker.deadlineNanos(id, timeoutNanos);
                 final AtomicBoolean combatClosed = new AtomicBoolean(false);
@@ -969,15 +962,34 @@ public class AiAttackController {
                     }));
                 }
 
-                try {
-                    executor.invokeAll(tasks, Math.max(1L, AITimeoutTracker.remainingNanos(id, timeoutNanos)), TimeUnit.NANOSECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    synchronized (combat) {
-                        combatClosed.set(true); // late workers must not add attackers after we move on
+                if (ai.getGame().AI_STEP_BUDGET > 0 || AITimeoutTracker.currentSteps() != null) {
+                    // A run with a step budget has to replay: the tasks run in order on this thread, so the forced
+                    // attackers join combat in the order of this.attackers and their checks spend the decision's steps.
+                    for (final Callable<Integer> task : tasks) {
+                        try {
+                            task.call();
+                        } catch (final Exception e) {
+                            // as under invokeAll, a task that fails costs only its own attacker
+                        }
                     }
-                    executor.shutdownNow();
+                } else {
+                    ExecutorService executor = Executors.newFixedThreadPool(
+                        Runtime.getRuntime().availableProcessors(), r -> {
+                            Thread t = Executors.defaultThreadFactory().newThread(r);
+                            t.setDaemon(true);
+                            return t;
+                        }
+                    );
+                    try {
+                        executor.invokeAll(tasks, Math.max(1L, AITimeoutTracker.remainingNanos(id, timeoutNanos)), TimeUnit.NANOSECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        synchronized (combat) {
+                            combatClosed.set(true); // late workers must not add attackers after we move on
+                        }
+                        executor.shutdownNow();
+                    }
                 }
 
                 if (attackersLeft.isEmpty()) {

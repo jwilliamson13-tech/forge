@@ -58,7 +58,9 @@ public class SimulateMatch {
 
     /** Set by -budget: search steps per AI decision, or 0 to leave the wall-clock limit in charge. */
     private static int searchBudget = 0;
-    /** True with -sim or -budget. Without them the output stays what stock Forge prints. */
+    /** Set by -aisteps: AI steps per heuristic AI decision, or 0 to leave the wall-clock limit in charge. */
+    private static int aiSteps = 0;
+    /** True with -sim, -budget or -aisteps. Without them the output stays what stock Forge prints. */
     private static boolean printAiLimits = false;
     /** True when -sim gives a seat a mode that searches. Only then do the search changes of Game.AI_SIM_SEARCH apply. */
     private static boolean simSearch = false;
@@ -162,7 +164,15 @@ public class SimulateMatch {
                 return;
             }
         }
-        printAiLimits = searchBudget > 0 || params.containsKey("sim");
+        aiSteps = 0;
+        if (params.containsKey("aisteps")) {
+            aiSteps = parseSearchBudget(params.get("aisteps"));
+            if (aiSteps == 0) {
+                System.out.println("-aisteps takes a whole number of AI steps above zero: " + params.get("aisteps"));
+                return;
+            }
+        }
+        printAiLimits = searchBudget > 0 || aiSteps > 0 || params.containsKey("sim");
         simSearch = anySeatSearches(params.get("sim"));
 
         recording = null;
@@ -524,7 +534,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -prune [on|off] -eval [EVAL] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -aisteps [STEPS] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -prune [on|off] -eval [EVAL] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -538,6 +548,7 @@ public class SimulateMatch {
         System.out.println("\tA - AI profile per player, in the same order as the decks (e.g. -a Default Experimental)");
         System.out.println("\tSIM - Simulation mode per player, in the same order as the decks: heuristic, hybrid or full (e.g. -sim full heuristic). Players left out and runs without the flag stay heuristic. With the flag, result lines name each player's mode as [sim=mode]. Not for tournaments.");
         System.out.println("\tB - Search steps per AI decision. Replaces the wall-clock limit on AI decisions with a count, so that a run replays from its seed on a busy machine too. A full sim decision that runs out plays the best line it found, and passes if that is no better than passing. A heuristic seat has no search to run out.");
+        System.out.println("\tSTEPS - AI steps per heuristic AI decision, one per check the AI makes in its loops. Replaces the wall-clock limit on AI decisions with a count, so that heuristic play replays from its seed on a busy machine too. A spell choice that runs out passes priority, an attack keeps the attackers chosen so far, and blocks keep the blocks made so far. A full sim spell choice is left to -budget.");
         System.out.println("\tDIR - Write one game record per game to this folder. Needs -batch, -s and two decks. Not for tournaments.");
         System.out.println("\tID - Batch id for the game records: letters, digits, _ and -.");
         System.out.println("\tCAP - With -record, the last turn a game may play before it stops as a draw, defaults to 50.");
@@ -565,6 +576,11 @@ public class SimulateMatch {
             // no decision can outlast the game, so this leaves the budget as the only limit on one
             g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
         }
+        if (aiSteps > 0) {
+            g1.AI_STEP_BUDGET = aiSteps;
+            // as with -budget: the clock of the game is then the only wall clock a decision meets
+            g1.AI_TIMEOUT = mc.getRules().getSimTimeout();
+        }
         g1.AI_SIM_SEARCH = simSearch;
         g1.AI_HONEST_PLAY = honest;
         g1.AI_PRUNE_HIDDEN_INFO = prune;
@@ -579,6 +595,8 @@ public class SimulateMatch {
         final long passedBefore = AITimeoutTracker.stopsPassed();
         final long withLandBefore = AITimeoutTracker.stopsWithLand();
         final long missedBefore = AITimeoutTracker.landDropsMissed();
+        final long stepStopsBefore = AITimeoutTracker.stepStops();
+        AITimeoutTracker.resetMostSteps();
         // will run match in the same thread
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -624,12 +642,15 @@ public class SimulateMatch {
         }
 
         if (printAiLimits) {
+            // the step fields only with -aisteps, so that a run without it prints the line it always did
+            final String steps = aiSteps > 0 ? String.format(", %d step stops, %d most steps",
+                    AITimeoutTracker.stepStops() - stepStopsBefore, AITimeoutTracker.mostSteps()) : "";
             System.out.printf("AI limits: %d deadline expiries, %d budget stops, %d random draws, "
-                            + "%d stops played, %d stops passed, %d stops with a land, %d land drops missed%n",
+                            + "%d stops played, %d stops passed, %d stops with a land, %d land drops missed%s%n",
                     AITimeoutTracker.deadlineExpiries() - expiriesBefore, AITimeoutTracker.budgetStops() - stopsBefore,
                     MyRandom.callCount() - drawsBefore, AITimeoutTracker.stopsPlayed() - playedBefore,
                     AITimeoutTracker.stopsPassed() - passedBefore, AITimeoutTracker.stopsWithLand() - withLandBefore,
-                    AITimeoutTracker.landDropsMissed() - missedBefore);
+                    AITimeoutTracker.landDropsMissed() - missedBefore, steps);
         }
 
         // If both players life totals to 0 in a single turn, the game should end in a draw

@@ -181,7 +181,38 @@ public final class AITimeoutTracker {
         long deadlineNanos;
         /** Search steps left in this thread's budget, or NO_BUDGET. Zero means the budget ran out. */
         long stepsLeft = NO_BUDGET;
+        /** The AI step budget of the decision this thread works for, or null. See {@link #armSteps}. */
+        Steps steps;
     }
+
+    /**
+     * The AI step budget of one decision: how many more times {@link #check()} may pass. A decision's thread arms it,
+     * and the evaluation thread it hands its spell checks to takes the same one, so both spend one budget. The two
+     * never run at once (the decision waits for the evaluation), which is what makes the stop land on the same
+     * check every run.
+     */
+    public static final class Steps {
+        private final long budget;
+        private long left;
+        private boolean stopped;
+        /** Only for the trace. */
+        private final long startNanos = TRACE_STEPS ? System.nanoTime() : 0;
+
+        private Steps(final long budget) {
+            this.budget = budget;
+            this.left = budget;
+        }
+
+        /** Checks this decision has passed so far. */
+        public long spent() {
+            return budget - left;
+        }
+    }
+
+    private static final AtomicLong STEP_STOPS = new AtomicLong();
+    private static final AtomicLong MOST_STEPS = new AtomicLong();
+    /** -Dforge.ai.steps.trace=true prints the checks each decision spent to stderr, to choose a budget from. */
+    private static final boolean TRACE_STEPS = Boolean.getBoolean("forge.ai.steps.trace");
 
     private static final long NO_BUDGET = -1;
 
@@ -276,6 +307,72 @@ public final class AITimeoutTracker {
         }
     }
 
+    /**
+     * Gives this thread's decision a budget of AI steps, for runs that have to replay: one step is one
+     * {@link #check()}, the call the AI already makes in its loops. The heuristic AI passes the same checks in the same
+     * order on a busy machine and an idle one, so unlike a deadline the budget runs out at the same point. Does
+     * nothing when the budget is not positive or this thread already has one, so a nested decision spends the outer
+     * one's budget.
+     * @return the budget this call armed, which the caller must end with {@link #disarmSteps}, or null
+     */
+    public static Steps armSteps(final long steps) {
+        final Limit l = LIMIT.get();
+        if (steps <= 0 || l.steps != null) {
+            return null;
+        }
+        l.steps = new Steps(steps);
+        return l.steps;
+    }
+
+    /** Ends a budget {@link #armSteps} returned. Null is allowed, for a call that armed nothing. */
+    public static void disarmSteps(final Steps armed) {
+        if (armed == null) {
+            return;
+        }
+        final Limit l = LIMIT.get();
+        if (l.steps == armed) {
+            l.steps = null;
+        }
+        MOST_STEPS.accumulateAndGet(armed.spent(), Math::max);
+        if (TRACE_STEPS) {
+            System.err.println("AI steps: " + armed.spent() + " in " + (System.nanoTime() - armed.startNanos) / 1_000_000 + " ms" + (armed.stopped ? ", stopped" : ""));
+        }
+    }
+
+    /** This thread's step budget, to hand to a thread that works for the same decision, or null. */
+    public static Steps currentSteps() {
+        return LIMIT.get().steps;
+    }
+
+    /**
+     * Makes this thread spend {@code steps}, a budget another thread armed, until {@link #restoreSteps} with what this
+     * returns. Only for a thread the decision's own thread waits for, so that the two never check at once.
+     */
+    public static Steps adoptSteps(final Steps steps) {
+        final Limit l = LIMIT.get();
+        final Steps previous = l.steps;
+        l.steps = steps;
+        return previous;
+    }
+
+    public static void restoreSteps(final Steps previous) {
+        LIMIT.get().steps = previous;
+    }
+
+    /** How many AI decisions have run out of their step budget since this JVM started. */
+    public static long stepStops() {
+        return STEP_STOPS.get();
+    }
+
+    /** The most steps any one decision has spent since {@link #resetMostSteps()}. */
+    public static long mostSteps() {
+        return MOST_STEPS.get();
+    }
+
+    public static void resetMostSteps() {
+        MOST_STEPS.set(0);
+    }
+
     private static final ThreadLocal<Limit> LIMIT = ThreadLocal.withInitial(Limit::new);
 
     /**
@@ -309,6 +406,17 @@ public final class AITimeoutTracker {
         if (l.stepsLeft == 0) {
             throw new Expired();
         }
+        final Steps steps = l.steps;
+        if (steps != null) {
+            if (steps.left == 0) {
+                if (!steps.stopped) {
+                    steps.stopped = true;
+                    STEP_STOPS.incrementAndGet();
+                }
+                throw new Expired();
+            }
+            steps.left--;
+        }
         if (l.armed && (System.nanoTime() - l.deadlineNanos >= 0 || (l.honourInterrupt && Thread.currentThread().isInterrupted()))) {
             noteDeadlineExpired(l.deadlineNanos);
             throw new Expired();
@@ -318,7 +426,8 @@ public final class AITimeoutTracker {
     /** True once {@link #check()} would throw for a used-up limit. Unlike check() it has no effect on the counts. */
     public static boolean isStopped() {
         final Limit l = LIMIT.get();
-        return l.stepsLeft == 0 || (l.armed && System.nanoTime() - l.deadlineNanos >= 0);
+        return l.stepsLeft == 0 || (l.steps != null && l.steps.left == 0)
+                || (l.armed && System.nanoTime() - l.deadlineNanos >= 0);
     }
 
     /** Nanoseconds left of this thread's armed deadline (Long.MAX_VALUE when not armed). */

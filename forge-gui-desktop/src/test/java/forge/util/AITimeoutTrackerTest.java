@@ -48,6 +48,94 @@ public class AITimeoutTrackerTest {
     }
 
     @Test
+    public void aStepBudgetPassesThatManyChecksAndStopsOnTheNext() {
+        final AITimeoutTracker.Steps steps = AITimeoutTracker.armSteps(3);
+        Assert.assertNotNull(steps);
+        try {
+            final long stops = AITimeoutTracker.stepStops();
+            AITimeoutTracker.check();
+            AITimeoutTracker.check();
+            Assert.assertFalse(AITimeoutTracker.isStopped(), "one step left");
+            AITimeoutTracker.check();
+            Assert.assertTrue(AITimeoutTracker.isStopped(), "the next check would throw");
+            Assert.assertEquals(AITimeoutTracker.stepStops(), stops, "a stop counts when a check is refused");
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+            Assert.assertEquals(AITimeoutTracker.stepStops(), stops + 1, "one decision, one stop");
+            Assert.assertEquals(steps.spent(), 3);
+        } finally {
+            AITimeoutTracker.disarmSteps(steps);
+        }
+        AITimeoutTracker.check(); // the next decision starts clean
+        Assert.assertNull(AITimeoutTracker.currentSteps());
+    }
+
+    @Test
+    public void withoutAStepBudgetChecksCostNothing() {
+        Assert.assertNull(AITimeoutTracker.armSteps(0));
+        final long stops = AITimeoutTracker.stepStops();
+        for (int i = 0; i < 1000; i++) {
+            AITimeoutTracker.check();
+        }
+        Assert.assertEquals(AITimeoutTracker.stepStops(), stops);
+        AITimeoutTracker.disarmSteps(null); // what a caller that armed nothing does
+    }
+
+    @Test
+    public void aNestedDecisionSpendsTheOuterSteps() {
+        final AITimeoutTracker.Steps outer = AITimeoutTracker.armSteps(2);
+        try {
+            AITimeoutTracker.check();
+            Assert.assertNull(AITimeoutTracker.armSteps(100), "a nested decision must not get fresh steps");
+            AITimeoutTracker.check();
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+        } finally {
+            AITimeoutTracker.disarmSteps(outer);
+        }
+    }
+
+    @Test
+    public void anEvalThreadSpendsTheDecisionsSteps() throws Exception {
+        final AITimeoutTracker.Steps steps = AITimeoutTracker.armSteps(5);
+        try {
+            AITimeoutTracker.check();
+            final int[] passed = {0};
+            final Thread eval = new Thread(() -> {
+                final AITimeoutTracker.Steps previous = AITimeoutTracker.adoptSteps(steps);
+                try {
+                    while (true) {
+                        AITimeoutTracker.check();
+                        passed[0]++;
+                    }
+                } catch (AITimeoutTracker.Expired e) {
+                    // the budget ran out here, not on the deciding thread
+                } finally {
+                    AITimeoutTracker.restoreSteps(previous);
+                }
+            });
+            eval.start();
+            eval.join(2000);
+            Assert.assertEquals(passed[0], 4, "the eval thread gets what the deciding thread left");
+            Assert.assertThrows(AITimeoutTracker.Expired.class, AITimeoutTracker::check);
+        } finally {
+            AITimeoutTracker.disarmSteps(steps);
+        }
+    }
+
+    @Test
+    public void mostStepsIsTheLargestDecision() {
+        AITimeoutTracker.resetMostSteps();
+        for (final int checks : new int[] {4, 9, 2}) {
+            final AITimeoutTracker.Steps steps = AITimeoutTracker.armSteps(100);
+            for (int i = 0; i < checks; i++) {
+                AITimeoutTracker.check();
+            }
+            AITimeoutTracker.disarmSteps(steps);
+        }
+        Assert.assertEquals(AITimeoutTracker.mostSteps(), 9);
+    }
+
+    @Test
     public void aDeadlineCountsOnceHoweverOftenItThrows() {
         final long expiries = AITimeoutTracker.deadlineExpiries();
         final Object t = AITimeoutTracker.arm(System.nanoTime() - 1, false);

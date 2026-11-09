@@ -220,13 +220,18 @@ public final class StormSolver {
         }
         solves++;
         totalSolves++;
+        // The node count bounds the search, as -budget bounds the full sim search, so it doesn't spend the decision's
+        // AI steps: the copies a node plays make far more checks than a heuristic decision does.
+        final AITimeoutTracker.Steps steps = AITimeoutTracker.adoptSteps(null);
         try {
-            line = solve(ai, combos, DEFAULT_MAX_NODES, budgetNanos());
+            line = solve(ai, combos, DEFAULT_MAX_NODES, budgetNanos(ai.getGame()));
         } catch (final OutOfMemoryError e) {
             line = null; // the search is local and garbage now; Flat Monte Carlo plays on
             disabled = true;
             lastNote = "out of memory: solver off";
             return null;
+        } finally {
+            AITimeoutTracker.restoreSteps(steps);
         }
         index = 0;
         if (line == null) {
@@ -671,7 +676,11 @@ public final class StormSolver {
         return 1; // the pieces of the deck are at the bottom of the library: one order is the pessimistic one, more is luck
     }
 
-    private static long budgetNanos() {
+    private static long budgetNanos(final Game game) {
+        if (game.AI_STEP_BUDGET > 0) {
+            // a run with a step budget has to replay, so the node count bounds the search and the clock doesn't
+            return Long.MAX_VALUE / 4;
+        }
         return constrained() ? DEFAULT_BUDGET_NANOS / 2 : DEFAULT_BUDGET_NANOS;
     }
 
