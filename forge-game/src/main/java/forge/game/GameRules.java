@@ -18,6 +18,10 @@ public class GameRules {
     private boolean allowCheatShuffle = false;
     private final Set<GameType> appliedVariants = EnumSet.noneOf(GameType.class);
     private int simTimeout = 120;
+    // Pick each game's first player at random, as the first game of a match does, in place of letting the loser of
+    // the last game go first. Set by forge sim -firstplayer random, for runs of many games in one match whose games
+    // should not depend on each other.
+    private boolean randomStartEachGame = false;
 
     // it's a preference, not rule... but I could hardly find a better place for it
     private boolean useGrayText;
@@ -148,5 +152,13 @@ public class GameRules {
 
     public void setSimTimeout(final int duration) {
         this.simTimeout = duration;
+    }
+
+    public boolean randomStartEachGame() {
+        return randomStartEachGame;
+    }
+
+    public void setRandomStartEachGame(final boolean random) {
+        this.randomStartEachGame = random;
     }
 }

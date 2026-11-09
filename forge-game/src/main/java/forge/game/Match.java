@@ -89,7 +89,9 @@ public class Match {
             game.fireEvent(GameEventAnteCardsSelected.fromCards(list));
         }
 
-        game.getAction().startGame(this.lastOutcome, startGameHook);
+        // With randomStartEachGame, no game hears how the last one went, so each picks its first player as the first
+        // game does: the same coin flip, the same one draw from MyRandom. lastOutcome itself stays, for sideboarding.
+        game.getAction().startGame(rules.randomStartEachGame() ? null : this.lastOutcome, startGameHook);
 
         // Typically ante, but also tearing up a blacker lotus
         executeOwnershipChanges(game);

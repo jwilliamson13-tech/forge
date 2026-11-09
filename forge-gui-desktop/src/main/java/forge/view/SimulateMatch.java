@@ -55,6 +55,8 @@ public class SimulateMatch {
     /** The turn cap's counterpart of the clock's line. The sim-runner reads it to tell the two kinds of draw apart. */
     private static final String TURN_CAP_LINE = "Stopping game at the turn cap as draw";
     private static final int DEFAULT_TURN_CAP = 50;
+    /** Printed once with -firstplayer random. The sim-runner reads it as proof that the jar knows the flag. */
+    static final String RANDOM_FIRST_PLAYER_LINE = "First player: random each game";
 
     /** Set by -budget: search steps per AI decision, or 0 to leave the wall-clock limit in charge. */
     private static int searchBudget = 0;
@@ -72,6 +74,8 @@ public class SimulateMatch {
     private static boolean honest = false;
     /** True by default when a seat searches, unless -prune off says otherwise. See Game.AI_PRUNE_HIDDEN_INFO. */
     private static boolean prune = false;
+    /** True with -firstplayer random: every game's first player is a coin flip. See GameRules.randomStartEachGame. */
+    private static boolean randomFirstPlayer = false;
 
     static void setTripwire(final boolean on) {
         tripwire = on;
@@ -203,6 +207,13 @@ public class SimulateMatch {
         }
         prune = pruneOn(params);
 
+        final String firstPlayerProblem = firstPlayerOptionProblem(params);
+        if (firstPlayerProblem != null) {
+            System.out.println(firstPlayerProblem);
+            return;
+        }
+        randomFirstPlayer = randomFirstPlayer(params);
+
         String evalProblem = OnnxEvaluators.retiredPropertyProblem();
         if (evalProblem == null) {
             evalProblem = evalOptionProblem(params);
@@ -228,6 +239,11 @@ public class SimulateMatch {
 
         if (matchSize != 0) {
             rules.setGamesPerMatch(matchSize);
+        }
+        rules.setRandomStartEachGame(randomFirstPlayer);
+        if (randomFirstPlayer) {
+            // only with the flag, so that a run without it prints what stock Forge prints
+            System.out.println(RANDOM_FIRST_PLAYER_LINE);
         }
 
         if (params.containsKey("t")) {
@@ -492,6 +508,20 @@ public class SimulateMatch {
         return params.containsKey("t") ? "-prune cannot be used with -t" : null;
     }
 
+    /** Why -firstplayer can't be used, or null if it can or wasn't asked for. */
+    static String firstPlayerOptionProblem(Map<String, List<String>> params) {
+        List<String> values = params.get("firstplayer");
+        if (values == null || List.of("random").equals(values) || List.of("loser").equals(values)) {
+            return null;
+        }
+        return "-firstplayer takes random or loser: " + values;
+    }
+
+    /** True with -firstplayer random. Left out or loser, the loser of the last game goes first, as in stock Forge. */
+    static boolean randomFirstPlayer(Map<String, List<String>> params) {
+        return List.of("random").equals(params.get("firstplayer"));
+    }
+
     /** On when a seat searches, so a search never sees what its seat couldn't know, unless -prune says otherwise. */
     static boolean pruneOn(Map<String, List<String>> params) {
         List<String> values = params.get("prune");
@@ -534,7 +564,7 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -aisteps [STEPS] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -prune [on|off] -eval [EVAL] -mc [on|off] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -s [S] -a [A] -sim [SIM] -budget [B] -aisteps [STEPS] -record [DIR] -batch [ID] -turncap [CAP] -tripwire [on|off] -honest [on|off] -prune [on|off] -eval [EVAL] -firstplayer [random|loser] -mc [on|off] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
@@ -556,6 +586,7 @@ public class SimulateMatch {
         System.out.println("\thonest - Have the AI keep to what a person in its seat could know: public cards, plus what it was shown, which it only remembers with -record. Defaults to off, which is the stock AI and its peeks. Not for tournaments.");
         System.out.println("	prune - Have the copies a searching seat plays its search on hold only what that seat could know of the other players' hidden cards: placeholders, and what it was shown. Defaults to on when -sim gives a seat hybrid or full, and to off otherwise. Not for tournaments.");
         System.out.println("\tEVAL - Evaluator per player for the search to score states with, in the same order as the decks: forge, random, passthrough or onnx:DIR (e.g. -eval random forge). forge is Forge's own and the default. random is a uniform draw from its own generator, seeded from -s and the seat. passthrough is Forge's own score through the evaluator seam. onnx:DIR is the learned model in the export bundle in folder DIR, under ONNX Runtime; each folder loads once, so seats on two folders play two models, and each such seat writes 'ONNX evaluator: seat N searches with DIR' to stderr. -Dforge.onnx.threads=N gives each bundle N threads, 1 by default. Any but forge needs the seat to be hybrid or full. With the flag, result lines name each player's evaluator as [eval=name], with onnx for onnx:DIR. Not for tournaments.");
+        System.out.println("\tfirstplayer - Who takes the first turn of each game after the first, defaults to loser: the loser of the last game, or after a draw the first deck's player, as in stock Forge. random flips a coin for every game, as for the first one, so that the games of one run don't depend on each other's results. With random, prints 'First player: random each game' once.");
         System.out.println("\tc - Clock flag. Set the maximum time in seconds before calling the match a draw, defaults to 120.");
         System.out.println("\tmc - Flat Monte Carlo AI refinement for this run, on, max or off (default off in simulations; max = desktop strength). Prints timing statistics at the end when on.");
         System.out.println("\tq - Quiet flag. Output just the game result, not the entire game log.");
