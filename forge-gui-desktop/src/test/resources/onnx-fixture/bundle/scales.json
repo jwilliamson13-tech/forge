@@ -23,7 +23,13 @@
   "opp_hand": 7,
   "turn": 20,
   "me_active": 1,
-  "me_on_play": 1
+  "me_on_play": 1,
+  "me_initiative": 1,
+  "opp_initiative": 1,
+  "me_monarch": 1,
+  "opp_monarch": 1,
+  "me_speed": 4,
+  "opp_speed": 4
  },
  "live": {
   "power": 5,

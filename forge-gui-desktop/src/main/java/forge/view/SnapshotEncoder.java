@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -12,7 +13,7 @@ import com.google.gson.JsonObject;
 import forge.view.OnnxBundle.CardFeatures;
 
 /**
- * Turns one snapshot line of a game record into the inputs of tensor contract version 1.
+ * Turns one snapshot line of a game record into the inputs of the bundle's tensor contract, version 1 or 2.
  * <p>
  * It reads the line {@link SnapshotLine} writes, the same line the recorder writes for training, and builds each
  * input the way the Python repo's {@code setmodel/dataset.py} builds it from the Parquet tables. So what the model
@@ -20,13 +21,18 @@ import forge.view.OnnxBundle.CardFeatures;
  * <ul>
  *     <li>Cards come zone by zone in the contract's zone order, then the stack, top first. The model pools each zone
  *     with a mean, so the order only moves rounding.</li>
- *     <li>A card with no name is hidden: no lookup, all masks 0, {@code hidden} 1.</li>
+ *     <li>A card with no name is hidden: no lookup, all masks 0, {@code hidden} 1. So is the placeholder a pruned
+ *     search copy holds for a card its viewer can't know, {@link OnnxBundle#PLACEHOLDER}, in any zone: a copy can play
+ *     one onto the battlefield or into a graveyard, where it would otherwise be a named card with no text.</li>
+ *     <li>A stack ability whose source the table lacks has no card behind it: an effect such as
+ *     {@code Tamiyo, Seasoned Scholar (48)'s Effect}, The Initiative, The Monarch or {@code Start Your Engines!}. It is
+ *     left out of the state, as training leaves it out, and reported to {@code skipped}. The initiative, the monarch
+ *     and speed are scoreboard fields from contract version 2.</li>
  *     <li>A named card the table lacks also gets all masks 0, with {@code hidden} 0. Training dropped every snapshot
  *     holding one, so the model has never seen this case. The encoder reports it to {@code missing} and goes on.</li>
  * </ul>
  */
 final class SnapshotEncoder {
-    private static final int S = OnnxBundle.SCOREBOARD_FIELDS.size();
     private static final int L = OnnxBundle.LIVE_FIELDS.size();
     private static final int STACK_ZONE = OnnxBundle.ZONES.indexOf("stack");
     private static final Map<String, Integer> NAMED_COUNTERS = Map.of(
@@ -58,9 +64,9 @@ final class SnapshotEncoder {
         final float[] live;
         final long[] zone;
 
-        private Inputs(final int cards, final int a, final int t, final int k) {
+        private Inputs(final int cards, final int s, final int a, final int t, final int k) {
             this.cards = cards;
-            scoreboard = new float[S];
+            scoreboard = new float[s];
             tokenIds = new long[cards * a * t];
             tokenMask = new float[cards * a * t];
             numbers = new float[cards * a * k];
@@ -72,11 +78,18 @@ final class SnapshotEncoder {
 
     private final OnnxBundle bundle;
     private final BiConsumer<String, String> missing;
+    private final Consumer<String> skipped;
 
     /** {@code missing} hears the name and face of every named card the table lacks, each time one is encoded. */
     SnapshotEncoder(final OnnxBundle bundle, final BiConsumer<String, String> missing) {
+        this(bundle, missing, name -> { });
+    }
+
+    /** {@code skipped} also hears the name of every stack ability left out for having no card behind it. */
+    SnapshotEncoder(final OnnxBundle bundle, final BiConsumer<String, String> missing, final Consumer<String> skipped) {
         this.bundle = bundle;
         this.missing = missing;
+        this.skipped = skipped;
     }
 
     private static int live(final String field) {
@@ -97,16 +110,23 @@ final class SnapshotEncoder {
                 zones.add(z);
             }
         }
-        for (final JsonElement item : line.getAsJsonArray("stack")) {
-            cards.add(item.getAsJsonObject());
+        for (final JsonElement element : line.getAsJsonArray("stack")) {
+            final JsonObject item = element.getAsJsonObject();
+            if (hasNoCard(item)) {
+                skipped.accept(item.get("name").getAsString());
+                continue;
+            }
+            cards.add(item);
             zones.add(STACK_ZONE);
         }
 
         final int a = bundle.abilities(), t = bundle.tokens(), k = bundle.keys();
-        final Inputs in = new Inputs(cards.size(), a, t, k);
+        final List<String> fields = bundle.scoreboardFields();
+        final Inputs in = new Inputs(cards.size(), fields.size(), a, t, k);
         final JsonObject board = line.getAsJsonObject("scoreboard");
-        for (int i = 0; i < S; i++) {
-            in.scoreboard[i] = number(board.get(OnnxBundle.SCOREBOARD_FIELDS.get(i)));
+        for (int i = 0; i < fields.size(); i++) {
+            // a field the line lacks is 0: a version 1 record has no initiative, monarch or speed
+            in.scoreboard[i] = number(board.get(fields.get(i)));
         }
         for (int n = 0; n < cards.size(); n++) {
             final JsonObject card = cards.get(n);
@@ -122,8 +142,19 @@ final class SnapshotEncoder {
         return in;
     }
 
+    /** A stack ability whose named source the table lacks: an effect or a marker, not a card. */
+    private boolean hasNoCard(final JsonObject item) {
+        return "ability".equals(item.get("kind").getAsString()) && !isHidden(item)
+                && bundle.lookup(item.get("name").getAsString(), item.get("face").getAsString()) == null;
+    }
+
+    /** A card this side may not look at: no name, or the search's placeholder. */
+    private static boolean isHidden(final JsonObject card) {
+        return isNull(card, "name") || OnnxBundle.PLACEHOLDER.equals(card.get("name").getAsString());
+    }
+
     private void addFeatures(final Inputs in, final int n, final JsonObject card, final int a, final int t, final int k) {
-        if (isNull(card, "name")) {
+        if (isHidden(card)) {
             return;
         }
         final String name = card.get("name").getAsString();
@@ -161,7 +192,7 @@ final class SnapshotEncoder {
         live[at + SUMMONING_SICK] = number(card.get("summoning_sick"));
         live[at + MINE] = flag(card.get("controller").getAsInt() == side);
         live[at + FACE_DOWN] = number(card.get("face_down"));
-        live[at + HIDDEN] = flag(isNull(card, "name"));
+        live[at + HIDDEN] = flag(isHidden(card));
         live[at + DAMAGE] = number(card.get("damage"));
         live[at + ATTACKING] = flag(!isNull(card, "attacking_seat") || !isNull(card, "attacking_card"));
         live[at + BLOCKING] = flag(hasItems(card, "blocking"));
@@ -177,7 +208,7 @@ final class SnapshotEncoder {
     private static void stackLive(final float[] live, final int at, final JsonObject item, final int side) {
         live[at + MINE] = flag(item.get("controller").getAsInt() == side);
         live[at + FACE_DOWN] = number(item.get("face_down"));
-        live[at + HIDDEN] = flag(isNull(item, "name"));
+        live[at + HIDDEN] = flag(isHidden(item));
         live[at + STACK_ABILITY] = flag("ability".equals(item.get("kind").getAsString()));
     }
 

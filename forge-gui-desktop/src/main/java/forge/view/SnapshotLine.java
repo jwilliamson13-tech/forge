@@ -101,6 +101,13 @@ final class SnapshotLine {
         board.addProperty("turn", phases.getTurn());
         board.addProperty("me_active", me.equals(phases.getPlayerTurn()));
         board.addProperty("me_on_play", me.equals(game.getStartingPlayer()));
+        // schema version 2: the game-wide markers and each player's speed, which Forge keeps off the board as effects
+        board.addProperty("me_initiative", me.equals(game.getHasInitiative()));
+        board.addProperty("opp_initiative", opp.equals(game.getHasInitiative()));
+        board.addProperty("me_monarch", me.equals(game.getMonarch()));
+        board.addProperty("opp_monarch", opp.equals(game.getMonarch()));
+        board.addProperty("me_speed", me.getSpeed());
+        board.addProperty("opp_speed", opp.getSpeed());
         return board;
     }
 

@@ -44,7 +44,9 @@ import forge.game.zone.ZoneType;
 
 /**
  * The ONNX evaluator on the fixture the Python repo's {@code tests/forge_fixture.py} builds: a smoke-model bundle, one
- * game record, and what setmodel's PyTorch model gives each of its snapshots.
+ * game record, and what setmodel's PyTorch model gives each of its snapshots. {@code onnx-fixture} is tensor contract
+ * version 2. {@code onnx-fixture-v1} is the version 1 fixture as that code built it, kept to show a version 1 bundle,
+ * such as gen0's, still loads and scores what it did.
  */
 public class OnnxEvaluatorTest extends AITest {
     /** PyTorch against ONNX Runtime with inputs built in Java. The export check allows 1e-4 between two runtimes. */
@@ -69,9 +71,13 @@ public class OnnxEvaluatorTest extends AITest {
     }
 
     private List<JsonObject> snapshots() throws IOException {
+        return snapshots(fixture);
+    }
+
+    private static List<JsonObject> snapshots(final Path folder) throws IOException {
         final List<JsonObject> lines = new ArrayList<>();
         try (BufferedReader in = new BufferedReader(new InputStreamReader(
-                new GZIPInputStream(Files.newInputStream(fixture.resolve("game.jsonl.gz"))), StandardCharsets.UTF_8))) {
+                new GZIPInputStream(Files.newInputStream(folder.resolve("game.jsonl.gz"))), StandardCharsets.UTF_8))) {
             in.readLine();
             String line;
             while ((line = in.readLine()) != null) {
@@ -82,8 +88,12 @@ public class OnnxEvaluatorTest extends AITest {
     }
 
     private Map<Integer, Double> expected() throws IOException {
+        return expected(fixture);
+    }
+
+    private static Map<Integer, Double> expected(final Path folder) throws IOException {
         final Map<Integer, Double> expected = new HashMap<>();
-        final List<String> lines = Files.readAllLines(fixture.resolve("expected.tsv"), StandardCharsets.UTF_8);
+        final List<String> lines = Files.readAllLines(folder.resolve("expected.tsv"), StandardCharsets.UTF_8);
         for (final String line : lines.subList(1, lines.size())) {
             final String[] fields = line.split("\t");
             expected.put(Integer.parseInt(fields[1]), Double.parseDouble(fields[2]));
@@ -129,7 +139,148 @@ public class OnnxEvaluatorTest extends AITest {
 
     @Test
     public void anotherContractVersionIsRefused() throws Exception {
-        assertRefused(bundleWith(c -> c.addProperty("version", 2)), "version");
+        assertRefused(bundleWith(c -> c.addProperty("version", 3)), "version");
+        assertRefused(bundleWith(c -> c.addProperty("version", 0)), "version");
+    }
+
+    @Test
+    public void aVersionTwoContractNamesThePlaceholder() throws Exception {
+        assertEquals(2, evaluator.bundle().version());
+        assertRefused(bundleWith(c -> c.getAsJsonObject("card_table").addProperty("placeholder", "unknown")), "placeholder");
+        assertRefused(bundleWith(c -> c.getAsJsonObject("card_table").remove("placeholder")), "placeholder");
+    }
+
+    @Test
+    public void aVersionOneBundleStillLoadsAndScoresWhatItsSetmodelGave() throws Exception {
+        final Path v1 = fixture.resolveSibling("onnx-fixture-v1");
+        try (OnnxEvaluator old = OnnxEvaluator.load(v1.resolve("bundle"))) {
+            assertEquals(1, old.bundle().version());
+            assertEquals(OnnxBundle.SCOREBOARD_FIELDS_V1, old.bundle().scoreboardFields());
+            final List<JsonObject> lines = snapshots(v1);
+            final Map<Integer, Double> expected = expected(v1);
+            assertEquals(lines.size(), expected.size());
+            double worst = 0;
+            for (int i = 0; i < lines.size(); i++) {
+                worst = Math.max(worst, Math.abs(old.probability(lines.get(i)) - expected.get(i)));
+            }
+            assertTrue("largest difference " + worst, worst < TOLERANCE);
+            // a version 2 line has six more scoreboard fields, and a version 1 model reads only its own ten
+            final JsonObject line = snapshots().get(0);
+            assertEquals(10, new SnapshotEncoder(old.bundle(), (name, face) -> { }).encode(line).scoreboard.length);
+        }
+    }
+
+    @Test
+    public void theScoreboardCarriesTheInitiativeTheMonarchAndSpeed() throws Exception {
+        final SnapshotEncoder encoder = new SnapshotEncoder(evaluator.bundle(), (name, face) -> { });
+        final float[] first = encoder.encode(snapshots().get(0)).scoreboard;
+        final float[] second = encoder.encode(snapshots().get(1)).scoreboard;
+        final List<String> fields = OnnxBundle.SCOREBOARD_FIELDS;
+        assertEquals(16, first.length);
+        assertEquals(1f, first[fields.indexOf("me_initiative")]);
+        assertEquals(0f, first[fields.indexOf("opp_initiative")]);
+        assertEquals(0f, first[fields.indexOf("me_monarch")]);
+        assertEquals(1f, first[fields.indexOf("opp_monarch")]);
+        assertEquals(2f, first[fields.indexOf("me_speed")]);
+        assertEquals(1f, first[fields.indexOf("opp_speed")]);
+        assertEquals(1f, second[fields.indexOf("opp_initiative")]);
+        assertEquals(1f, second[fields.indexOf("me_monarch")]);
+        assertEquals(1f, second[fields.indexOf("me_speed")]);
+        // a version 1 line has none of the six, and they read as 0
+        final JsonObject old = snapshots().get(0);
+        for (final String field : List.of("me_initiative", "opp_initiative", "me_monarch", "opp_monarch", "me_speed", "opp_speed")) {
+            old.getAsJsonObject("scoreboard").remove(field);
+        }
+        final float[] none = encoder.encode(old).scoreboard;
+        for (int i = OnnxBundle.SCOREBOARD_FIELDS_V1.size(); i < none.length; i++) {
+            assertEquals(fields.get(i), 0f, none[i]);
+        }
+    }
+
+    @Test
+    public void aStackAbilityWithNoCardBehindItIsLeftOutAndCounted() throws Exception {
+        final JsonObject line = snapshots().get(0);
+        assertEquals(5, line.getAsJsonArray("stack").size());
+        final List<String> skipped = new ArrayList<>();
+        final SnapshotEncoder.Inputs in = new SnapshotEncoder(evaluator.bundle(),
+                (name, face) -> fail("an effect is not a missing card: " + name), skipped::add).encode(line);
+        assertEquals(List.of("The Initiative", "Tamiyo, Seasoned Scholar (48)'s Effect"), skipped);
+        int onStack = 0;
+        for (final long zone : in.zone) {
+            onStack += zone == OnnxBundle.ZONES.indexOf("stack") ? 1 : 0;
+        }
+        assertEquals(3, onStack);
+
+        final long before = evaluator.skippedItems();
+        evaluator.probability(line);
+        assertEquals(before + 2, evaluator.skippedItems());
+        assertTrue(evaluator.summary(), evaluator.summary().contains("contract version 2"));
+    }
+
+    @Test
+    public void aStackSpellTheTableLacksIsStillAMissingCard() throws Exception {
+        final JsonObject line = snapshots().get(0);
+        final JsonObject spell = line.getAsJsonArray("stack").get(0).getAsJsonObject();
+        spell.addProperty("name", "A Card From Next Year");
+        final List<String> heard = new ArrayList<>();
+        final SnapshotEncoder.Inputs in = new SnapshotEncoder(evaluator.bundle(), (name, face) -> heard.add(name)).encode(line);
+        assertEquals(List.of("A Card From Next Year"), heard);
+        assertEquals(20, in.cards);
+    }
+
+    @Test
+    public void thePlaceholderIsHiddenInAPublicZone() throws Exception {
+        final JsonObject line = snapshots().get(0);
+        final SnapshotEncoder.Inputs in = new SnapshotEncoder(evaluator.bundle(),
+                (name, face) -> fail("the placeholder is not a missing card")).encode(line);
+        final int a = evaluator.bundle().abilities();
+        final int battlefield = 6;  // the fixture's placeholder, last on the battlefield
+        final int graveyard = 7 + 3 + 1 + 1;  // battlefield, hand, me_graveyard, then the second opp_graveyard card
+        for (final int n : List.of(battlefield, graveyard)) {
+            assertAllZero(in.tokenMask, n * a * evaluator.bundle().tokens(), a * evaluator.bundle().tokens());
+            assertAllZero(in.numberMask, n * a * evaluator.bundle().keys(), a * evaluator.bundle().keys());
+            final int live = n * OnnxBundle.LIVE_FIELDS.size();
+            assertEquals(1f, in.live[live + OnnxBundle.LIVE_FIELDS.indexOf("hidden")]);
+            assertEquals(0f, in.live[live + OnnxBundle.LIVE_FIELDS.indexOf("face_down")]);
+        }
+        assertEquals((long) OnnxBundle.ZONES.indexOf("opp_graveyard"), in.zone[graveyard]);
+        assertEquals(1f, in.live[battlefield * OnnxBundle.LIVE_FIELDS.size() + OnnxBundle.LIVE_FIELDS.indexOf("tapped")]);
+    }
+
+    @Test
+    public void aPrunedCopysPlaceholderOnTheBattlefieldIsScoredAsHidden() throws Exception {
+        final Game game = liveGame();
+        final Player ai = game.getRegisteredPlayers().get(0);
+        final Player opp = game.getRegisteredPlayers().get(1);
+        game.AI_PRUNE_HIDDEN_INFO = true;
+        final GameCopier copier = new GameCopier(game);
+        final Game copy = copier.makeCopy(null, ai);
+        final Player copiedOpp = copier.find(opp);
+        Card placeholder = null;
+        for (final Card c : copiedOpp.getCardsIn(ZoneType.Hand)) {
+            if (GameCopier.HIDDEN_CARD_NAME.equals(c.getName())) {
+                placeholder = c;
+            }
+        }
+        assertTrue("the copy holds a placeholder for the opponent's unknown card", placeholder != null);
+        copy.getAction().moveToPlay(placeholder, null, null);
+        final JsonObject line = SnapshotLine.of(copy, copier.find(ai), new RecordIds(0L, 0, 1), List.of());
+        int n = -1;
+        final JsonArray battlefield = line.getAsJsonObject("zones").getAsJsonArray("battlefield");
+        for (int i = 0; i < battlefield.size(); i++) {
+            if (GameCopier.HIDDEN_CARD_NAME.equals(battlefield.get(i).getAsJsonObject().get("name").getAsString())) {
+                n = i;
+            }
+        }
+        assertTrue("the copy's snapshot names the placeholder on the battlefield", n >= 0);
+        final SnapshotEncoder.Inputs in = new SnapshotEncoder(evaluator.bundle(),
+                (name, face) -> fail("the placeholder is not a missing card")).encode(line);
+        assertEquals(1f, in.live[n * OnnxBundle.LIVE_FIELDS.size() + OnnxBundle.LIVE_FIELDS.indexOf("hidden")]);
+        final int a = evaluator.bundle().abilities();
+        assertAllZero(in.tokenMask, n * a * evaluator.bundle().tokens(), a * evaluator.bundle().tokens());
+        final long missingBefore = evaluator.missingCards();
+        evaluator.winProbability(copy, copier.find(ai));
+        assertEquals(missingBefore, evaluator.missingCards());
     }
 
     @Test
@@ -172,7 +323,8 @@ public class OnnxEvaluatorTest extends AITest {
                     assertEquals(input.get("name") + " " + letter, size, info.getShape()[d]);
                 }
             }
-            assertEquals(18, in.cards);  // 6 on the battlefield, 3 in hand, 4 in graveyards and exiles, 2 logged, 3 on the stack
+            // 7 on the battlefield, 3 in hand, 5 in graveyards and exiles, 2 logged, 3 of the stack's 5: two have no card
+            assertEquals(20, in.cards);
         } finally {
             tensors.values().forEach(OnnxTensor::close);
         }
