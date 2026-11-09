@@ -146,6 +146,95 @@ public class TwoLookScorerTest extends SimulationTest {
         }
     }
 
+    /** Sees the given end coming from every state, and fails the test if the scorer asks it for a second look. */
+    private static WinProbabilityEvaluator foreseeing(Score end) {
+        return new WinProbabilityEvaluator() {
+            @Override
+            public double winProbability(Game game, Player ai) {
+                throw new AssertionError("the scorer took a second look at a state whose end was foreseen");
+            }
+
+            @Override
+            public Estimate estimate(Game game, Player ai) {
+                return new Estimate(0.5, end);
+            }
+        };
+    }
+
+    private static Score winOnTurn(int turn) {
+        return new Score(Integer.MAX_VALUE - turn * GameStateEvaluator.GAME_OVER_TURN_PENALTY);
+    }
+
+    private static Score lossOnTurn(int turn) {
+        return new Score(Integer.MIN_VALUE + 1 + turn * GameStateEvaluator.GAME_OVER_TURN_PENALTY);
+    }
+
+    /** A board where the second look would be taken: a sick creature before combat. */
+    private Game boardWithASickCreature() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        addCard("Grizzly Bears", ai);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai, 3);
+        game.getAction().checkStateEffects(true);
+        return game;
+    }
+
+    /**
+     * An end the evaluator sees coming from the real state keeps its band in both integers, with no second look, as
+     * stock Forge scores a state whose coming combat ends the game.
+     */
+    @Test
+    public void aForeseenEndKeepsItsBand() {
+        for (Score end : new Score[] {winOnTurn(3), lossOnTurn(3)}) {
+            Game game = boardWithASickCreature();
+            Player ai = game.getPlayers().get(1);
+            Score score = new TwoLookScorer(foreseeing(end)).score(game, ai);
+            AssertJUnit.assertTrue(end + " vs " + score, end.equals(score));
+        }
+    }
+
+    /** The search stops at a foreseen win, as it does at Forge's, and goes on past a foreseen loss, as in stock. */
+    @Test
+    public void aForeseenWinStopsTheSearchAndALossDoesNot() {
+        Game game = boardWithASickCreature();
+        Player ai = game.getPlayers().get(1);
+        Score win = new TwoLookScorer(foreseeing(winOnTurn(3))).score(game, ai);
+        Score loss = new TwoLookScorer(foreseeing(lossOnTurn(3))).score(game, ai);
+        Score live = new TwoLookScorer((g, p) -> 1.0).score(game, ai);
+        AssertJUnit.assertFalse("a win stops the search", new SimulationController(win).shouldRecurse());
+        AssertJUnit.assertTrue("a loss doesn't", new SimulationController(loss).shouldRecurse());
+        AssertJUnit.assertTrue("nor does the top of the live range", new SimulationController(live).shouldRecurse());
+    }
+
+    @Test
+    public void aForeseenEndOutsideTheBandsIsRefused() {
+        Game game = boardWithASickCreature();
+        Player ai = game.getPlayers().get(1);
+        for (Score notAnEnd : new Score[] {new Score(5), new Score(TwoLookScorer.LIVE_SCORE_MAX), new Score(Integer.MIN_VALUE)}) {
+            try {
+                new TwoLookScorer(foreseeing(notAnEnd)).score(game, ai);
+                AssertJUnit.fail("took " + notAnEnd + " as the end of the game");
+            } catch (IllegalStateException expected) {
+                // a live score or the failed-simulation sentinel is no end
+            }
+        }
+    }
+
+    /** An evaluator that doesn't override estimate sees no end, and is scored by two looks as before. */
+    @Test
+    public void theDefaultEstimateSeesNoEnd() {
+        Game game = boardWithASickCreature();
+        Player ai = game.getPlayers().get(1);
+        WinProbabilityEvaluator quarter = (g, p) -> 0.25;
+        WinProbabilityEvaluator.Estimate estimate = quarter.estimate(game, ai);
+        AssertJUnit.assertEquals(0.25, estimate.probability(), 0.0);
+        AssertJUnit.assertNull(estimate.end());
+
+        Recorder recorder = new Recorder();
+        new TwoLookScorer(recorder).score(game, ai);
+        AssertJUnit.assertEquals("two looks", 2, recorder.games.size());
+    }
+
     private Game gameWithBearsInHand(PhaseType phase) {
         Game game = initAndCreateGame();
         Player ai = game.getPlayers().get(1);

@@ -20,6 +20,10 @@ import java.util.Random;
  * <ol>
  *     <li>A finished game keeps Forge's bands: a win is {@code Integer.MAX_VALUE - turn * 1000}, a loss
  *     {@code Integer.MIN_VALUE + 1 + turn * 1000}. The evaluator isn't asked.</li>
+ *     <li>A live game whose end the evaluator sees coming from the real state, through
+ *     {@link WinProbabilityEvaluator#estimate}, keeps the band the evaluator gives for it, in both integers, and takes
+ *     no second look. That is how stock Forge scores a state whose coming combat ends the game, and it is how a win
+ *     there stops the search. Only an evaluator that looks ahead sees an end: of this module's, the passthrough.</li>
  *     <li>{@code value} is the evaluator's probability for the real state.</li>
  *     <li>{@code availableValue} is its probability for a copy of the state with the AI's own summoning-sick creatures
  *     removed. That is what makes the search hold a creature until after combat: cast before combat, the creature
@@ -67,8 +71,24 @@ public final class TwoLookScorer implements SearchScorer {
         if (!aiPlayer.isInGame()) {
             return GameStateEvaluator.getTerminalScore(game, aiPlayer);
         }
-        int value = toScore(evaluator.winProbability(game, aiPlayer));
+        WinProbabilityEvaluator.Estimate first = evaluator.estimate(game, aiPlayer);
+        if (first.end() != null) {
+            return foreseenEnd(first.end());
+        }
+        int value = toScore(first.probability());
         return new Score(value, availableValue(game, aiPlayer, value));
+    }
+
+    /**
+     * The score of a state whose end the evaluator saw coming, as Forge's evaluator sees it in this turn's combat: the
+     * band as it is, for the value and the available value alike, and no second look. Stock Forge scores such a state
+     * the same way, so a win stops the search ({@link SimulationController#shouldRecurse}) and a loss doesn't.
+     */
+    private static Score foreseenEnd(Score end) {
+        if (!GameStateEvaluator.isWinning(end.value) && !GameStateEvaluator.isLosing(end.value)) {
+            throw new IllegalStateException("an evaluator foresaw an end that is no win or loss band: " + end);
+        }
+        return new Score(end.value);
     }
 
     private int availableValue(Game game, Player aiPlayer, int value) {
