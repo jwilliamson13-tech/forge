@@ -205,6 +205,12 @@ public class GameCopier {
                         if (o instanceof Card && ((Card)o).getZone() == null) {
                            continue;
                         }
+                        // The same for a card that still names a zone it is no longer in, so the copy holds no card
+                        // with its id: a prepared spell's effect remembering the spell copy (Carnivorous Cultivator's
+                        // Enroot) once that copy has left exile. There is nothing in the copy to remember.
+                        if (o instanceof Card && !cardMap.containsKey(o)) {
+                            continue;
+                        }
                         // The same for an ability (a spell remembering itself or the ability that created it): the copy of
                         // the stack is only made below, so there is nothing to map it to yet.
                         if (o instanceof SpellAbility) {

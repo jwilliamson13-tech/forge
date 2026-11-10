@@ -167,12 +167,16 @@ public class PossibleTargetSelector {
             targetingSa.getTargets().add(validTargets.get(index++));
         }
 
-        // Divide up counters, since AI is expected to do this. For now,
+        // Divide up counters or damage, since AI is expected to do this. For now,
         // divided evenly with left-overs going to the first target.
+        // Every target gets a share, a player too: an ability dividing damage among players and cards (Ral, Leyline
+        // Prodigy's -2) holds a share for each one, and resolving it with a target that has none throws.
         if (targetingSa.isDividedAsYouChoose()) {
-            final int targetCount = targetingSa.getTargets().getTargetCards().size();
+            final int targetCount = targetingSa.getTargets().size();
             if (targetCount > 0) {
-                final String amountStr = targetingSa.getParam("CounterNum");
+                // counters say how many in CounterNum; anything else divides the amount DividedAsYouChoose names
+                final String amountStr = targetingSa.hasParam("CounterNum") ? targetingSa.getParam("CounterNum")
+                        : targetingSa.getParam("DividedAsYouChoose");
                 final int amount = AbilityUtils.calculateAmount(sa.getHostCard(), amountStr, targetingSa);
                 final int amountPerCard = amount / targetCount;
                 int amountLeftOver = amount - (amountPerCard * targetCount);
