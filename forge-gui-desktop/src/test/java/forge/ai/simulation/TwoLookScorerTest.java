@@ -338,8 +338,16 @@ public class TwoLookScorerTest extends SimulationTest {
         AssertJUnit.assertTrue(sick.isInZone(ZoneType.Battlefield));
     }
 
-    @Test
-    public void aRemovedLordNoLongerPumps() {
+    private static int merfolkPower(Player p) {
+        for (Card c : p.getCreaturesInPlay()) {
+            if (c.getName().equals("Merfolk of the Pearl Trident")) {
+                return c.getNetPower();
+            }
+        }
+        throw new AssertionError("no merfolk");
+    }
+
+    private Game boardWithASickLord() {
         Game game = initAndCreateGame();
         Player ai = game.getPlayers().get(1);
         addCard("Lord of Atlantis", ai);
@@ -348,19 +356,80 @@ public class TwoLookScorerTest extends SimulationTest {
         game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai);
         game.getAction().checkStateEffects(true);
         AssertJUnit.assertEquals("the lord pumps the merfolk", 2, merfolk.getNetPower());
+        return game;
+    }
+
+    /**
+     * Josh's call of 11-09: summoning sickness doesn't switch off a creature's static abilities, so a sick lord's pump
+     * stays in the second look. The lord itself is gone from the battlefield, and its abilities sit on an effect card in
+     * the command zone.
+     */
+    @Test
+    public void aRemovedLordStillPumps() {
+        Game game = boardWithASickLord();
+        Player ai = game.getPlayers().get(1);
 
         final List<Integer> merfolkPower = new ArrayList<>();
+        final List<Integer> creatures = new ArrayList<>();
+        final List<List<String>> commandZone = new ArrayList<>();
         new TwoLookScorer((g, p) -> {
-            for (Card c : p.getCreaturesInPlay()) {
-                if (c.getName().equals("Merfolk of the Pearl Trident")) {
-                    merfolkPower.add(c.getNetPower());
-                }
+            merfolkPower.add(merfolkPower(p));
+            creatures.add(p.getCreaturesInPlay().size());
+            List<String> names = new ArrayList<>();
+            for (Card c : p.getCardsIn(ZoneType.Command)) {
+                AssertJUnit.assertTrue(c + " should be an effect", c.isImmutable());
+                names.add(c.getName());
+            }
+            commandZone.add(names);
+            return 0.5;
+        }).score(game, ai);
+
+        AssertJUnit.assertEquals("the pump is in both looks", List.of(2, 2), merfolkPower);
+        AssertJUnit.assertEquals("the lord is gone from the second look", List.of(2, 1), creatures);
+        AssertJUnit.assertEquals(List.of(List.of(), List.of(TwoLookScorer.keptStaticsName("Lord of Atlantis"))), commandZone);
+        AssertJUnit.assertTrue("the real game has no effect added", ai.getCardsIn(ZoneType.Command).isEmpty());
+        AssertJUnit.assertEquals(2, ai.getCreaturesInPlay().size());
+    }
+
+    /**
+     * Forge's evaluator copies the state it is given to play out the coming combat, and the copy checks static abilities
+     * again. The kept pump has to survive that, or the passthrough would still lose it in its combat look.
+     */
+    @Test
+    public void aKeptPumpSurvivesACopyOfTheSecondLook() {
+        Game game = boardWithASickLord();
+        Player ai = game.getPlayers().get(1);
+
+        final List<Integer> copiedPower = new ArrayList<>();
+        new TwoLookScorer((g, p) -> {
+            if (g != game) {
+                GameCopier copier = new GameCopier(g);
+                Game copy = copier.makeCopy(PhaseType.COMBAT_DECLARE_BLOCKERS, p);
+                copiedPower.add(merfolkPower(copier.find(p)));
+                AssertJUnit.assertEquals("the copy has no lord on the battlefield", 1, copier.find(p).getCreaturesInPlay().size());
+                AssertJUnit.assertTrue(copy.isSimulationCopy());
             }
             return 0.5;
         }).score(game, ai);
 
-        AssertJUnit.assertEquals(List.of(2, 1), merfolkPower);
-        AssertJUnit.assertEquals("the real merfolk is still pumped", 2, merfolk.getNetPower());
+        AssertJUnit.assertEquals(List.of(2), copiedPower);
+    }
+
+    /** A sick creature with no static abilities leaves nothing behind. */
+    @Test
+    public void aSickCreatureWithoutStaticsLeavesNoEffect() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        addCard("Grizzly Bears", ai);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai);
+        game.getAction().checkStateEffects(true);
+
+        final List<Integer> effects = new ArrayList<>();
+        new TwoLookScorer((g, p) -> {
+            effects.add(p.getCardsIn(ZoneType.Command).size());
+            return 0.5;
+        }).score(game, ai);
+        AssertJUnit.assertEquals(List.of(0, 0), effects);
     }
 
     @Test

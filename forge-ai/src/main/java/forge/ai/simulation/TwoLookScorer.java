@@ -1,6 +1,7 @@
 package forge.ai.simulation;
 
 import forge.ai.simulation.GameStateEvaluator.Score;
+import forge.card.GamePieceType;
 import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
@@ -8,10 +9,14 @@ import forge.game.card.CardLists;
 import forge.game.combat.Combat;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
+import forge.game.staticability.StaticAbility;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
 import forge.util.MyRandom;
 
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Random;
 
@@ -41,9 +46,16 @@ import java.util.Random;
  * <p>
  * The copy for the second look counts as no search step, like the copy {@link GameStateEvaluator} makes to look at
  * the coming combat. The removal is not a zone change: it runs no triggers and no state-based actions. It takes the
- * creatures out of the battlefield and out of combat, then applies static abilities again, so a lord that was removed
- * no longer pumps what is left. A removed creature is in no zone at all, as a card a spell remembers for its last known
- * information can be, so a later copy of the derived state skips it where another card still remembers it.
+ * creatures out of the battlefield and out of combat. A removed creature is in no zone at all, as a card a spell
+ * remembers for its last known information can be, so a later copy of the derived state skips it where another card
+ * still remembers it.
+ * <p>
+ * A sick creature's static abilities stay in the second look, as the rules have them: summoning sickness stops a
+ * creature attacking and tapping, not its static abilities, so a sick lord pumps this turn's attackers. Each removed
+ * creature that has any leaves an effect card in its controller's command zone holding copies of them, which apply from
+ * there, the way Forge's own effects do. The effect is in no zone an evaluator reads as the board, and Forge's game
+ * copies carry it, so it still applies in the copy Forge's evaluator makes to look at the coming combat. A
+ * characteristic-defining ability is left out: it defines only the creature, which is gone.
  * <p>
  * The second look draws nothing from the game's stream. Whatever the copy or the evaluator draws there comes from a
  * generator of its own, seeded the same way every time. An evaluator that calls into Forge's AI, as the passthrough
@@ -142,6 +154,7 @@ public final class TwoLookScorer implements SearchScorer {
         }
         Combat combat = game.getCombat();
         for (Card c : sickCreatures(aiPlayer)) {
+            keepStaticAbilities(game, c);
             if (combat != null) {
                 combat.removeFromCombat(c);
             }
@@ -151,5 +164,41 @@ public final class TwoLookScorer implements SearchScorer {
             c.setZone(null);
         }
         game.getAction().checkStaticAbilities(false);
+    }
+
+    /** The name of the effect card that holds a removed creature's static abilities, for that creature's name. */
+    static String keptStaticsName(String creatureName) {
+        return creatureName + "'s static abilities";
+    }
+
+    /**
+     * Puts copies of {@code creature}'s static abilities, all but the characteristic-defining ones, on an effect card in
+     * its controller's command zone, active there. The effect takes the creature's timestamps, so its abilities apply
+     * in the order the creature's did. Nothing is added for a creature without any.
+     */
+    private static void keepStaticAbilities(Game game, Card creature) {
+        List<StaticAbility> kept = new ArrayList<>();
+        for (StaticAbility stAb : creature.getStaticAbilities()) {
+            if (!stAb.isCharacteristicDefining()) {
+                kept.add(stAb);
+            }
+        }
+        if (kept.isEmpty()) {
+            return;
+        }
+        Player controller = creature.getController();
+        Card effect = new Card(game.nextCardId(), game);
+        effect.setName(keptStaticsName(creature.getName()));
+        effect.setOwner(controller);
+        effect.setGamePieceType(GamePieceType.EFFECT);
+        effect.setRenderForUI(false);
+        effect.setGameTimestamp(creature.getGameTimestamp());
+        effect.setLayerTimestamp(creature.getLayerTimestamp());
+        for (StaticAbility stAb : kept) {
+            StaticAbility copy = stAb.copy(effect, false, true);
+            copy.setActiveZone(EnumSet.of(ZoneType.Command));
+            effect.addStaticAbility(copy);
+        }
+        controller.getZone(ZoneType.Command).add(effect);
     }
 }
