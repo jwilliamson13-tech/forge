@@ -343,7 +343,7 @@ public class EvaluatorsTest extends SimulationTest {
 
     /**
      * The states of #23 with a band on one side: here the win needs a sick lord's pump. Forge's combat look on the
-     * real state finds it, and the second look, without the lord, wouldn't. The real state's end decides, as in stock.
+     * real state finds it. The real state's end decides, as in stock, whatever the second look would make of it.
      */
     @Test
     public void aWinTheSickLordMakesKeepsForgesWinBand() {
@@ -384,6 +384,30 @@ public class EvaluatorsTest extends SimulationTest {
         assertPassthroughIsForge("a loss in combat", game, ai);
         Score seam = seeded(() -> Evaluators.scorer("passthrough", null).score(game, ai));
         AssertJUnit.assertTrue("the search goes on past it", new SimulationController(seam).shouldRecurse());
+    }
+
+    /**
+     * The divergence #23 found after fork PR 15: a sick lord's pump. Forge counts the sick lord as 0 and keeps its pump
+     * on the merfolk; the second look now keeps the pump too, so on a board where combat ends nothing the passthrough
+     * gives Forge's two integers, the available value included.
+     */
+    @Test
+    public void passthroughKeepsASickLordsPump() {
+        Game game = initAndCreateGame();
+        Player ai = game.getPlayers().get(1);
+        addCard("Island", ai);
+        addCard("Lord of Atlantis", ai);
+        Card merfolk = addCard("Merfolk of the Pearl Trident", ai);
+        merfolk.setSickness(false);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, ai, 3);
+        game.getAction().checkStateEffects(true);
+        AssertJUnit.assertEquals("the lord pumps the merfolk", 2, merfolk.getNetPower());
+
+        Score forge = seeded(() -> new GameStateEvaluator().getScoreForGameState(game, ai));
+        AssertJUnit.assertFalse("combat should end nothing: " + forge,
+                GameStateEvaluator.isWinning(forge.value) || GameStateEvaluator.isLosing(forge.value));
+        AssertJUnit.assertTrue("Forge holds the sick lord back: " + forge, forge.availableValue < forge.value);
+        assertPassthroughIsForge("a sick lord's pump", game, ai);
     }
 
     /**
