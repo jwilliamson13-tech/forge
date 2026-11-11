@@ -487,7 +487,12 @@ public class SpellAbilityPicker {
         }
         if (plan != null && plan.getSelectedDecision() != null && plan.getSelectedDecision().modes != null) {
             Plan.Decision decision = plan.getSelectedDecision();
-            // TODO: Validate that there's no discrepancies between choices and modes?
+            // The plan's mode indexes were taken from the choices the search saw. The choices can have shrunk since
+            // (a mode whose target went away, e.g. an opponent who gained hexproof), so check before indexing.
+            if (!SpellAbilityChoicesIterator.areValidModeIndexes(choices, decision.modes)) {
+                printPlannedActionFailure(decision, "Planned modes no longer match the available modes");
+                return null;
+            }
             List<AbilitySub> plannedModes = SpellAbilityChoicesIterator.getModeCombination(choices, decision.modes);
             if (plan.getSelectedDecision().targets != null) {
                 MultiTargetSelector selector = new MultiTargetSelector(sa, plannedModes);
