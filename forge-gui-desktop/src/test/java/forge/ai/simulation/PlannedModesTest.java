@@ -40,6 +40,7 @@ public class PlannedModesTest extends SimulationTest {
         final Player p = game.getPlayers().get(1);
         final Card will = addCardToZone("Jeska's Will", p, ZoneType.Hand);
         final SpellAbility sa = will.getSpellAbilities().get(0);
+        sa.setActivatingPlayer(p);
         final List<AbilitySub> both = CharmEffect.makePossibleOptions(sa);
         AssertJUnit.assertEquals(2, both.size());
         final List<AbilitySub> onlyFirst = new ArrayList<>(both.subList(0, 1)); // the second mode lost its target
@@ -58,6 +59,7 @@ public class PlannedModesTest extends SimulationTest {
         final Player p = game.getPlayers().get(1);
         final Card will = addCardToZone("Jeska's Will", p, ZoneType.Hand);
         final SpellAbility sa = will.getSpellAbilities().get(0);
+        sa.setActivatingPlayer(p);
         final List<AbilitySub> both = CharmEffect.makePossibleOptions(sa);
 
         final SpellAbilityPicker picker = new SpellAbilityPicker(p);
