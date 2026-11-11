@@ -2260,7 +2260,7 @@ public class ComputerUtilCombat {
     private static Boolean isCombatDamagePreventedThisTurnCached(final Game game) {
         return AiCache.getCached("isPreventCombatDamageThisTurn",
                 () -> game.getReplacementHandler().isPreventCombatDamageThisTurn(),
-                List.of(AiCache::identity), game);
+                List.of(AiCache.IDENTITY), game);
     }
 
     public final static boolean dealsFirstStrikeDamage(final Card combatant, final boolean withoutAbilities, final Combat combat) {

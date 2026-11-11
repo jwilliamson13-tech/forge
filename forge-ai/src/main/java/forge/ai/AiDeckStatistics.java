@@ -131,7 +131,7 @@ public class AiDeckStatistics {
         // Simulation copies share the same Deck instance (see GameCopier.clonePlayer), so caching on
         // it also avoids rebuilding every card of the deck for each simulated state that gets scored.
         return AiCache.getCached("aiDeckStatistics", () -> fromDeck(deck),
-                List.of(AiCache::identity), deck);
+                List.of(AiCache.IDENTITY), deck);
     }
 
 }
