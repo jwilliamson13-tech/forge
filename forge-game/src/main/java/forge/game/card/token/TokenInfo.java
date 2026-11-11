@@ -156,11 +156,24 @@ public class TokenInfo {
         return makeOneToken(controller, controller.getGame().nextCardId());
     }
     public Card makeOneToken(final Player controller, int id) {
+        return makeOneToken(controller, id, null);
+    }
+    /**
+     * @param svars the SVars the keywords refer to, set before they are added; a keyword such as Chapter looks its
+     *              abilities up on the card as it is added, so a token made from a copied card's keywords (a token
+     *              copy of Fable of the Mirror-Breaker) needs the copied card's SVars first. May be null.
+     */
+    public Card makeOneToken(final Player controller, int id, final java.util.Map<String, String> svars) {
         final Game game = controller.getGame();
         final Card c = toCard(game, id);
 
         c.setOwner(controller);
         c.setGamePieceType(GamePieceType.TOKEN);
+        if (svars != null) {
+            for (final java.util.Map.Entry<String, String> e : svars.entrySet()) {
+                c.setSVar(e.getKey(), e.getValue());
+            }
+        }
         CardFactoryUtil.setupKeywordedAbilities(c);
         // add them later to prevent setupKeywords from adding them multiple times
         for (final String kw : intrinsicKeywords) {

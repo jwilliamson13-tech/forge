@@ -3,6 +3,7 @@ package forge.ai.simulation;
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
 
+import forge.card.GamePieceType;
 import forge.game.Game;
 import forge.game.GameObject;
 import forge.game.card.Card;
@@ -124,5 +125,27 @@ public class LadderExceptionTest extends SimulationTest {
         final Card copiedExiled = copy.getCardsIn(ZoneType.Exile).getFirst();
         AssertJUnit.assertTrue(copiedHolder.isRemembered(copiedExiled));
         AssertJUnit.assertSame(copy, ((Card) copiedHolder.getFirstRemembered()).getGame());
+    }
+
+    /**
+     * "Error in Keyword Chapter:3:DBToken,DBDiscard,DBTransform for card Fable of the Mirror-Breaker" at
+     * GameCopier.createCardCopy (issue #82): the copier rebuilt a token copy of a Saga from its keywords alone, and
+     * Chapter looks its abilities up in the card's SVars, which the rebuilt token did not have yet.
+     */
+    @Test
+    public void aTokenCopyOfASagaCanBeCopied() {
+        final Game game = initAndCreateGame();
+        final Player p = game.getPlayers().get(1);
+        final Card fable = addCard("Fable of the Mirror-Breaker", p);
+        fable.setGamePieceType(GamePieceType.TOKEN); // as a token copy of it is: a token that keeps its paper card
+
+        final Game copy = new GameCopier(game).makeCopy();
+
+        AssertJUnit.assertNotNull(copy);
+        final Card copied = copy.getCardsIn(ZoneType.Battlefield).getFirst();
+        AssertJUnit.assertEquals("Fable of the Mirror-Breaker", copied.getName());
+        AssertJUnit.assertTrue(copied.isToken());
+        AssertJUnit.assertTrue(copied.hasSVar("DBToken"));
+        AssertJUnit.assertEquals(fable.getTriggers().size(), copied.getTriggers().size());
     }
 }
