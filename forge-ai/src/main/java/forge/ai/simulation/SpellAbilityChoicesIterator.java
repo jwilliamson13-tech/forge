@@ -225,6 +225,15 @@ public class SpellAbilityChoicesIterator {
         evalDepth--;
     }
 
+    public static boolean areValidModeIndexes(List<AbilitySub> choices, int[] modeIndexes) {
+        for (int modeIndex : modeIndexes) {
+            if (modeIndex < 0 || modeIndex >= choices.size()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static List<AbilitySub> getModeCombination(List<AbilitySub> choices, int[] modeIndexes) {
         ArrayList<AbilitySub> modes = new ArrayList<>();
         for (int modeIndex : modeIndexes) {
