@@ -18,6 +18,7 @@ import forge.game.phase.PhaseHandler;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
 import forge.game.player.RegisteredPlayer;
+import forge.game.spellability.AbilityManaPart;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.staticability.StaticAbility;
@@ -170,9 +171,7 @@ public class GameCopier {
             newPlayer.setUnlimitedHandSize(origPlayer.isUnlimitedHandSize());
             newPlayer.setCrankCounter(origPlayer.getCrankCounter());
             // TODO creatureAttackedThisTurn
-            for (Mana m : origPlayer.getManaPool()) {
-                newPlayer.getManaPool().addManaNoEvent(m);
-            }
+            // the mana pool is copied once the cards are, see copyManaPools
             playerMap.put(origPlayer, newPlayer);
         }
 
@@ -185,6 +184,7 @@ public class GameCopier {
         }
 
         copyGameState(newGame, aiPlayer);
+        copyManaPools(newGame);
 
         for (Player origPlayer : playerMap.keySet()) {
             Player newPlayer = playerMap.get(origPlayer);
@@ -569,6 +569,95 @@ public class GameCopier {
                 }
             }
         }
+    }
+
+    /**
+     * The players' floating mana, as mana of the copy. A {@link Mana} holds the card it came from (as that card was when
+     * it made the mana), the ability part that made it and the player it is for, all of the game it was made in. Put into
+     * the copy as it was, it kept that game alive as long as the copy lived, and a copy of a copy kept its whole line:
+     * on boards that float a lot of mana that ran forge sim out of heap. Each mana is now made again from the copy's card
+     * with the same id and that card's matching ability part. A mana whose card or part the copy doesn't have is still
+     * copied as it is, as before.
+     */
+    private void copyManaPools(final Game newGame) {
+        final Map<AbilityManaPart, AbilityManaPart> parts = new IdentityHashMap<>();
+        for (final Map.Entry<Player, Player> e : playerMap.entrySet()) {
+            for (final Mana m : e.getKey().getManaPool()) {
+                e.getValue().getManaPool().addManaNoEvent(copyMana(newGame, m, parts));
+            }
+        }
+    }
+
+    private Mana copyMana(final Game newGame, final Mana m, final Map<AbilityManaPart, AbilityManaPart> parts) {
+        final Player player = m.getPlayer() == null ? null : playerMap.get(m.getPlayer());
+        if (m.getPlayer() != null && player == null) {
+            return m;
+        }
+        final Card source = copiedCardWithId(newGame, m.getSourceCard().getId());
+        if (source == null) {
+            return m;
+        }
+        AbilityManaPart part = null;
+        if (m.getManaAbility() != null) {
+            part = parts.computeIfAbsent(m.getManaAbility(), p -> copiedManaPart(newGame, p));
+            if (part == null) {
+                return m;
+            }
+        }
+        // the constructor keeps the source as the mana does: a last known copy of it, here of the copy's card
+        return new Mana(m.getColor(), source, part, player);
+    }
+
+    /**
+     * The copy's card with {@code id}: the copy of the real card, or, for a card that has left the battlefield or the
+     * graveyard this turn (a sacrificed Eldrazi Spawn), what the copy keeps of it. Null when the copy has neither, or only
+     * a placeholder for a card its viewer can't know.
+     */
+    private Card copiedCardWithId(final Game newGame, final int id) {
+        final Card now = origGame.findById(id);
+        final Card copy = now == null ? null : cardMap.get(now);
+        if (copy != null) {
+            return notFromTheirCard.contains(copy) ? null : copy;
+        }
+        for (final Card lki : newGame.getLeftBattlefieldThisTurn()) {
+            if (lki.getId() == id) {
+                return lki;
+            }
+        }
+        for (final Card lki : newGame.getLeftGraveyardThisTurn()) {
+            if (lki.getId() == id) {
+                return lki;
+            }
+        }
+        return null;
+    }
+
+    /** The copy's ability part that matches {@code part}: on the copy's card with the same id, in the same ability and place in its chain. */
+    private AbilityManaPart copiedManaPart(final Game newGame, final AbilityManaPart part) {
+        final Card origHost = part.getSourceCard();
+        final Card newHost = origHost == null ? null : copiedCardWithId(newGame, origHost.getId());
+        if (newHost == null) {
+            return null;
+        }
+        for (final SpellAbility root : origHost.getAllSpellAbilities()) {
+            int depth = 0;
+            for (SpellAbility sa = root; sa != null; sa = sa.getSubAbility(), depth++) {
+                if (sa.getManaPart() != part) {
+                    continue;
+                }
+                SpellAbility newSa = findSAInCard(root, newHost);
+                for (int i = 0; i < depth && newSa != null; i++) {
+                    newSa = newSa.getSubAbility();
+                }
+                final AbilityManaPart newPart = newSa == null ? null : newSa.getManaPart();
+                if (newPart != null && !newPart.getExtraManaRestriction().equals(part.getExtraManaRestriction())) {
+                    // set on the real card's part after it was made (GameActionUtil), so the copy's part says the same
+                    newPart.setExtraManaRestriction(part.getExtraManaRestriction());
+                }
+                return newPart;
+            }
+        }
+        return null;
     }
 
     /** The name of the placeholder a pruned copy holds for a card its viewer can't know. */
