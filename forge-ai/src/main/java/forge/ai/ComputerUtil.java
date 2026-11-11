@@ -3040,7 +3040,7 @@ public class ComputerUtil {
     public static int evaluateBoardPosition(final Player ai, final Player opponent) {
         return AiCache.getCached("evaluateBoardPosition",
                 () -> evaluateBoardPositionChanged(ai, opponent),
-                List.of(AiCache::identity, AiCache::identity), ai, opponent);
+                List.of(AiCache.IDENTITY, AiCache.IDENTITY), ai, opponent);
     }
     private static int evaluateBoardPositionChanged(final Player ai, final Player opponent) {
         int rating = 0;
@@ -3285,7 +3285,7 @@ public class ComputerUtil {
     // or trigger "emergency" strategies such as holding mana for Spike Weaver or Counterspell.
     public static boolean aiLifeInDanger(Player ai, boolean serious, int payment) {
         return Integer.MIN_VALUE == AiCache.getCached("aiLifeInDanger", () -> predictNextCombatsRemainingLife(ai, serious, false, payment, null),
-                List.of(AiCache::identity, Objects::equals, Objects::equals), ai, serious, payment);
+                List.of(AiCache.IDENTITY, Objects::equals, Objects::equals), ai, serious, payment);
     }
     /**
      * The combat the opponent could attack with at the next opportunity and how the AI would block it, or null when
