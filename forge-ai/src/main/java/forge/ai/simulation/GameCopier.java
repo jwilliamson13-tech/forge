@@ -585,7 +585,9 @@ public class GameCopier {
             return newCard;
         }
         if (c.isToken() && !c.isImmutable()) {
-            Card result = new TokenInfo(c).makeOneToken(newOwner, c.getId());
+            // the SVars go in first: a keyword such as Chapter looks up its abilities on the card as it is added, and
+            // a token copy of a Saga (Fable of the Mirror-Breaker) has no script to supply them
+            Card result = new TokenInfo(c).makeOneToken(newOwner, c.getId(), c.getSVars());
             new CardCopyService(c).copyCopiableCharacteristics(result, null, null);
             // a token copy of a transforming (or otherwise multi-faced) permanent has its other faces too, and may be
             // showing one of them: without them it cannot be put back in the state it is in
