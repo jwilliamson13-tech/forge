@@ -389,6 +389,9 @@ public class GameSimulator {
      */
     public static void resolveOwnTop(final Game game, final Player owner, final Player opponent) {
         AITimeoutTracker.check(); // a phase advance of a rollout comes through here: it must not outlive its decision
+        if (opponent == null) {
+            return; // every opponent has already lost in this copy: there is no one to resolve the stack against
+        }
         PlayerControllerAi sim = new PlayerControllerAi(game, opponent, opponent.getLobbyPlayer());
         sim.getAi().setUseSimulation(AIOption.USE_FULL_SIMULATION);
         opponent.runWithController(() -> {
@@ -412,6 +415,9 @@ public class GameSimulator {
 
     public static void resolveStack(final Game game, final Player opponent) {
         AITimeoutTracker.check(); // a phase advance of a rollout comes through here: it must not outlive its decision
+        if (opponent == null) {
+            return; // every opponent has already lost in this copy (getWeakestOpponent is null): the game is decided
+        }
         // TODO: This needs to set an AI controller for all opponents, in case of multiplayer.
         PlayerControllerAi sim = new PlayerControllerAi(game, opponent, opponent.getLobbyPlayer());
         sim.getAi().setUseSimulation(AIOption.USE_FULL_SIMULATION);
