@@ -125,6 +125,8 @@ public class SpellAbilityPicker {
             return chooseSpellAbilityToPlayImpl(controller, candidateSAs, origGameScore, null);
         }
 
+        excludeFailedCasts(candidateSAs);
+
         printPhaseInfo();
         SpellAbility sa = getPlannedSpellAbility(origGameScore, candidateSAs);
         if (sa != null) {
@@ -138,6 +140,21 @@ public class SpellAbilityPicker {
             clearHypotheticalCasts(candidateSAs);
         }
         return sa;
+    }
+
+    /**
+     * Drops what the game already refused to put on the stack this turn (AiController.hasFailedToCast). The cast
+     * path refuses those up front (ComputerUtil.handlePlayingSpellAbility), but the search does not know that: a cast
+     * whose targets are illegal still "succeeds" in a simulated game, so the same line wins every search, the real
+     * game refuses it again, and the game loop asks again, up to its 999 iterations of a full search each. The
+     * memory is empty until a real cast has failed, so this changes nothing in a game without one.
+     */
+    private void excludeFailedCasts(List<SpellAbility> candidateSAs) {
+        if (!(player.getController() instanceof PlayerControllerAi pc)) {
+            return;
+        }
+        final AiController ai = pc.getAi();
+        candidateSAs.removeIf(ai::hasFailedToCast);
     }
 
     /** Asking a spell if it can be played leaves it as the card's castSA. AiController clears that after its own checks. */
