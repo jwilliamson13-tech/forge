@@ -38,6 +38,7 @@ import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.staticability.StaticAbilityAssignCombatDamageAsUnblocked;
 import forge.game.trigger.TriggerType;
+import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
 import forge.util.IterableUtil;
 import forge.util.Localizer;
@@ -82,6 +83,11 @@ public class Combat {
     public Combat(Combat combat, IEntityMap map) {
         playerWhoAttacks = map.map(combat.playerWhoAttacks);
         for (GameEntity entry : combat.attackableEntries.get()) {
+            if (leftTheGame(entry)) {
+                // a planeswalker or battle that left during combat stays in this list (removeFromCombat only moves its
+                // attackers to a stand-in); a token that left is in no zone, so the copy has no card to map it to
+                continue;
+            }
             attackableEntries.get().add(map.map(entry));
         }
 
@@ -131,6 +137,15 @@ public class Combat {
     private boolean isRealCombat() {
         final Combat gc = getAttackingPlayer().getGame().getCombat();
         return gc == null || gc == this;   // only skip while ANOTHER combat is the real one
+    }
+
+    /** A card defender whose zone no longer holds it (it left the battlefield, or a token ceased to exist). */
+    private static boolean leftTheGame(final GameEntity entry) {
+        if (!(entry instanceof Card c)) {
+            return false;
+        }
+        final Zone zone = c.getZone();
+        return zone == null || !zone.contains(c);
     }
 
     public void initConstraints() {
