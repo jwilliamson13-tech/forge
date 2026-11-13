@@ -7,6 +7,7 @@ import forge.card.GamePieceType;
 import forge.game.Game;
 import forge.game.GameObject;
 import forge.game.card.Card;
+import forge.game.combat.Combat;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
@@ -147,5 +148,42 @@ public class LadderExceptionTest extends SimulationTest {
         AssertJUnit.assertTrue(copied.isToken());
         AssertJUnit.assertTrue(copied.hasSVar("DBToken"));
         AssertJUnit.assertEquals(fable.getTriggers().size(), copied.getTriggers().size());
+    }
+
+    /**
+     * "Couldn't map Jace Token" at Combat's copy constructor (gen-1 pool, Bant Aggro's Avatar of Burgeoning Echoes):
+     * a planeswalker token that could be attacked left the battlefield during combat. removeFromCombat moved its
+     * attackers to a stand-in, but the token stayed in the combat's list of defenders, and a token that left is in no
+     * zone, so the copy had no card to map it to and the whole copy threw.
+     */
+    @Test
+    public void aPlaneswalkerTokenThatLeftDuringCombatDoesNotBreakTheCopy() {
+        final Game game = initAndCreateGame();
+        final Player attacker = game.getPlayers().get(1);
+        final Player defender = game.getPlayers().get(0);
+        final Card bears = addCard("Grizzly Bears", attacker);
+        final Card jace = addCard("Jace Beleren", defender);
+        jace.setGamePieceType(GamePieceType.TOKEN); // as the Jace token empower makes
+        final Combat combat = new Combat(attacker);
+        game.getPhaseHandler().setCombat(combat);
+        combat.addAttacker(bears, jace);
+        AssertJUnit.assertTrue(combat.getDefenders().contains(jace));
+
+        // the token dies in combat: it leaves combat, then the game
+        combat.removeFromCombat(jace);
+        defender.getZone(ZoneType.Battlefield).remove(jace);
+
+        final Game copy = new GameCopier(game).makeCopy();
+
+        AssertJUnit.assertNotNull(copy);
+        final Combat copied = copy.getPhaseHandler().getCombat();
+        AssertJUnit.assertNotNull(copied);
+        AssertJUnit.assertEquals(1, copied.getAttackers().size()); // the bears stay attacking (rule 506.4c)
+        AssertJUnit.assertEquals("Grizzly Bears", copied.getAttackers().getFirst().getName());
+        for (final Object d : copied.getDefenders()) {
+            AssertJUnit.assertFalse("the departed token is still a defender in the copy",
+                    d instanceof Card && "Jace Beleren".equals(((Card) d).getName()));
+        }
+        AssertJUnit.assertTrue(copied.getDefenders().contains(copy.getPlayers().get(0)));
     }
 }
